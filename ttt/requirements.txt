@@ -1,3 +1,0 @@
-    setuptools
-    scikit-build>=0.13
-    cython

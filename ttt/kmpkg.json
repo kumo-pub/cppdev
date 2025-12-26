@@ -1,6 +1,0 @@
-{
-  "dependencies": [
-    "zeromq",
-    "ghc-filesystem"
-  ]
-}
