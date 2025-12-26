@@ -45,7 +45,7 @@ generated method:
 Unprotected commas, i.e. commas which are not surrounded by parentheses, prevent
 `MOCK_METHOD` from parsing its arguments correctly:
 
-:::error
+:::danger
 ```cpp
 class MockFoo {
  public:

@@ -20,3 +20,10 @@ The kumo search C++ Core Development Library is a server-side-focused foundation
     standardized errors and error return values section [turbo](https://github.com/kumose/turbo).
 * [strings](/docs/strings/)  -- 
     strings-operations section [turbo](https://github.com/kumose/turbo).
+
+## kumo extension
+
+* [kmdo](https://github.com/kumose/kmdo) kumo search tool kit, see [docs](https://pub.kumose.cc/kmdo)
+* [kmpkg](https://github.com/kumose/kmpkg) kumo development package manager, see [docs](https://pub.kumose.cc/kmpkg)
+* [kmcmake](https://github.com/kumose/kmcmake) kumo cmake build system template, see [docs](https://pub.kumose.cc/kmcmake)
+
