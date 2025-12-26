@@ -1,0 +1,151 @@
+# Extensions
+
+## Extensions
+The doctest header does not include any external or standard library headers in its interface section to ensure optimal build performance, but this results in limited functionality it can provide `=>` this is where extensions come into play. They exist as header files in the [`doctest/extensions`](https://github.com/doctest/doctest/blob/master/doctest/extensions) directory, and each file is documented in a dedicated section here.
+
+# [Utils](https://github.com/doctest/doctest/blob/master/doctest/extensions/doctest_util.h)
+Nothing here yet...
+
+# [Distributed tests with MPI](https://github.com/doctest/doctest/blob/master/doctest/extensions/doctest_mpi.h)
+Testing code across distributed processes requires support from the test framework. **Doctest** support for MPI parallel communication is provided in the `"doctest/extensions/doctest_mpi.h"` header file.
+
+## Examples
+Refer to [**the complete test**](https://github.com/doctest/doctest/blob/master/examples/mpi/mpi.cpp) and [**the configuration of main()**](https://github.com/doctest/doctest/blob/master/examples/mpi/main.cpp)
+
+### MPI_TEST_CASE
+```c++
+#include "doctest/extensions/doctest_mpi.h"
+
+int my_function_to_test(MPI_Comm comm) {
+  int rank;
+  MPI_Comm_rank(comm,&rank);
+  if (rank == 0) {
+    return 10;
+  }
+  return 11;
+}
+
+
+MPI_TEST_CASE("test over two processes",2) { // Parallel test on 2 processes
+  int x = my_function_to_test(test_comm);
+
+  MPI_CHECK( 0,  x==10 ); // CHECK for rank 0, that x==10
+  MPI_CHECK( 1,  x==11 ); // CHECK for rank 1, that x==11
+}
+```
+
+`MPI_TEST_CASE` is similar to the regular `TEST_CASE`, except it requires a second parameter specifying the number of processes needed to run the test. If the number of processes is less than 2, the test fails. If the number of processes is 2 or more, it creates a sub-communicator on 2 processes (named `test_comm`) and executes the test on these processes. `MPI_TEST_CASE` provides three objects:
+ * `test_comm` (type `MPI_Comm`): the MPI communicator for running the test,
+ * ```test_rank``` and ```test_nb_procs``` (two ```int``` values): respectively representing the rank of the current process and the size of the ```test_comm``` communicator. The latter two are provided for convenience and can be retrieved from `test_comm`.
+
+The following always holds true:
+```c++
+MPI_TEST_CASE("my_test",N) {
+  CHECK( test_nb_procs == N );
+  MPI_CHECK( i, test_rank==i ); // for any i<N
+}
+```
+
+### Assertions
+Regular assertions can be used in `MPI_TEST_CASE`. MPI-specific assertions are also provided, all prefixed with ``MPI_`` (````MPI_CHECK````, ````MPI_ASSERT````, etc.). The first parameter is the target rank for the check, and the second parameter is the regular expression to verify.
+
+## Main Entry Point and MPI Test Reporting
+You need to launch the unit tests using the `mpirun` or `mpiexec` command:
+```
+mpirun -np 2 unit_test_executable.exe
+```
+
+`doctest::mpi_init_thread()` must be called before running the unit tests, and `doctest::mpi_finalize()` must be called at the end of the program.
+Additionally, using the default console reporter will cause every process to write all output to the same location, which is undesirable. Two dedicated reporters are provided and can be enabled. A complete ```main()``` function should look like this:
+
+```c++
+#define DOCTEST_CONFIG_IMPLEMENT
+
+#include "doctest/extensions/doctest_mpi.h"
+
+int main(int argc, char** argv) {
+  doctest::mpi_init_thread(argc,argv,MPI_THREAD_MULTIPLE); // Or any MPI thread level
+
+  doctest::Context ctx;
+  ctx.setOption("reporters", "MpiConsoleReporter");
+  ctx.setOption("reporters", "MpiFileReporter");
+  ctx.setOption("force-colors", true);
+  ctx.applyCommandLine(argc, argv);
+
+  int test_result = ctx.run();
+
+  doctest::mpi_finalize();
+
+  return test_result;
+}
+```
+
+### MpiConsoleReporter
+`MpiConsoleReporter` should replace the default reporter. It behaves the same as the default console reporter for regular assertions but only outputs on process 0. For MPI test cases, if a failure occurs, it indicates the process where the failure happened:
+```
+[doctest] doctest version is "2.4.0"
+[doctest] run with "--help" for options
+===============================================================================
+[doctest] test cases:    171 |    171 passed |      0 failed |      0 skipped
+[doctest] assertions:    864 |    864 passed |      0 failed |
+[doctest] Status: SUCCESS!
+std_e_mpi_unit_tests
+[doctest] doctest version is "2.4.0"
+[doctest] run with "--help" for options
+===============================================================================
+path/to/test.cpp:30:
+TEST CASE: my test case
+
+On rank [2] : path/to/test.cpp:35: CHECK( x==-1 ) is NOT correct!
+  values: CHECK( 0 == -1 )
+
+===============================================================================
+[doctest] test cases:      2 |      2 passed |      0 failed |      0 skipped
+[doctest] assertions:      2 |      2 passed |      0 failed |
+[doctest] Status: SUCCESS!
+===============================================================================
+[doctest] assertions on all processes:   5 |   4 passed |      1 failed |
+===============================================================================
+[doctest] fail on rank:
+    -> On rank [2] with 1 test failed
+[doctest] Status: FAILURE!
+```
+
+If the number of processes used to launch the test executable is less than the number required by a test case, the test will be skipped and marked as such in the MPI console reporter:
+
+```c++
+MPI_TEST_CASE("my_test",3) {
+  // ...
+}
+```
+
+```
+mpirun -np 2 unit_test_executable.exe
+```
+
+```
+===============================================================================
+[doctest] test cases:      1 |      1 passed |      0 failed |      1 skipped
+[doctest] assertions:      1 |      1 passed |      0 failed |
+[doctest] Status: SUCCESS!
+===============================================================================
+[doctest] assertions on all processes:   1 |   1 passed |      0 failed |
+[doctest] WARNING: Skipped 1 test requiring more than 2 MPI processes to run
+===============================================================================
+```
+
+### MpiFileReporter
+`MpiFileReporter` prints the results of each process to its own file (named `doctest_[rank].log`). Use this reporter only as a debugging tool to investigate the exact cause of failures in parallel test cases.
+
+### Other Reporters
+Other reporters (jUnit, XML) are not directly supported. This means you can always print each process's results to its own file, but there is (currently) no equivalent of `MpiConsoleReporter` to aggregate results from all processes.
+
+## Explanation
+This feature is designed for unit testing MPI-distributed code. It is **not** a method to parallelize multiple unit tests across multiple processes (for that purpose, refer to the [**example python script**](https://github.com/doctest/doctest/blob/master/examples/range_based_execution.py)).
+
+## TODO
+* Pass the `s` member variable of `ConsoleReporter` as a parameter to member functions, enabling reuse with other objects (will help refactor `MPIConsoleReporter`)
+ * Only `MPI_CHECK` has been tested. `MPI_REQUIRE` and exception handling: no tests have been performed
+ * Add more tests and automated testing
+ * Packaging: Create a new target ``mpi_doctest``? (It would be cleaner for `mpi/doctest.h` to explicitly depend on MPI)
+ * In the future (maybe): Implement a generic mechanism for representing assertions, separating report formats (console, XML, jUnit, etc.) from reporting strategies (sequential vs MPI)

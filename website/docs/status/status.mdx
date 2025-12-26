@@ -1,0 +1,172 @@
+# Standardized Return Values
+
+Turbo includes two Status libraries in the `turbo/utility` directory:
+
+* A "status" library containing the `turbo::Status` class (for storing error handling information), a set of standardized `turbo::StatusCode` error codes, and related utilities for generating and propagating status codes.
+* A `statusor` library containing the `turbo::Result<T>` class template that can be used to return either a `turbo::Status` error or an object of type `T`. (This `Result<T>` abstraction is similar to [C++23's `std::expected`](https://en.cppreference.com/w/cpp/utility/expected).)
+
+## `turbo::Status` Overview {#overview}
+
+In Kumo, `turbo::Status` is the primary mechanism for gracefully handling errors across API boundaries (especially across RPC boundaries). Some of these errors may be recoverable, while others may not. Most functions that can produce recoverable errors should be designed to return `turbo::Status` or the similar `turbo::Result<T>`, which holds either an object of type `T` or an error.
+
+Most operations in Turbo (or Kumo) code return [`turbo::Status`](https://gitee.com/kumo-pub/turbo/blob/master/turbo/utility/status.h) (abbreviated as "Status" below). A "Status" is intended to return either `OK` or one of several different error codes corresponding to typical error conditions. In almost all cases, when using `turbo::Status`, you should use the standardized error codes (of type `turbo::StatusCode`). These standardized codes are understood across the entire codebase and will be accepted across all API and RPC boundaries. Functions that return a `Status` value *must be handled* (and are marked with `TURBO_MUST_USE_RESULT`).
+
+## Using `Status` to Return Errors
+
+Success of any specific operation is indicated by the "Status" error code `OK` (technically the status error code `turbo::StatusCode::kOk`). API developers should structure their operations to return `turbo::OkStatus()` on success, or a `turbo::StatusCode` (e.g., `turbo::StatusCode::kInvalidArgument` error) when another type of error occurs. The API provides convenience functions for constructing each specific status code. (See [Canonical Errors](#canonical_errors) below.)
+
+For example, the code below shows how to return an error encountered while performing a file operation:
+
+```c++
+turbo::Status Open(turbo::string_view filename, turbo::string_view mode, ...) {
+  if (...) return turbo::OkStatus();  // Signal success
+  if (...) return turbo::InvalidArgumentError("bad mode");
+
+  turbo::Status result;  // Default constructor creates an OK value as well.
+  if (...) {
+    // Short-hand for result = turbo::Status(turbo::StatusCode::kNotFound, ...)
+    result = turbo::NotFoundError(turbo::StrCat(filename, " is missing"));
+  } else {
+    ...
+  }
+  return result;  // could be "OK" or "NOT_FOUND"
+}
+```
+
+A non-OK status typically includes an error code (e.g., `turbo::StatusCode::kNotFound`, mapped to `NOT_FOUND`) and a message (e.g., `file.txt is missing`). The API provides `code()` and `message()` member functions to retrieve these values. The error code is for programmatic checking (e.g., the caller may react differently based on the error code it sees). The error message may be logged somewhere for developers or SREs to inspect and figure out the problem. The message is not intended for end users.
+
+:::info
+Low-level APIs (such as the file `Open()` operation) should generally not log status values themselves, but instead pass them to the caller, who will have a better understanding of how to handle any errors.
+:::
+
+## Canonical Errors {#canonical_errors}
+
+These canonical errors associated with `turbo::Status` are used throughout the codebase. As such, these error codes are somewhat generic. When constructing a `turbo::Status` with one of these codes, you may need to provide additional context in the message of the `Status` object.
+
+For a complete list of canonical error codes and recommendations on how to choose an error code suitable for your use case, see the [Standardized Error Codes](status-codes.mdx) guide.
+
+## Checking for Errors {#check-errors}
+
+Just as API providers must properly construct and return `turbo::Status`, callers must properly handle the received "Status". This involves checking if the operation completed successfully (checking for `OK`) and determining the exact error and how to handle it if the operation did not succeed.
+
+Instead of checking for the specific `OK` status code (e.g., `turbo::StatusCode::kOk`), the Turbo Status library provides a `Status::ok()` member function. Users handling status error codes should prefer to check the status using this `Status::ok()` member function.
+
+A `turbo::Status` value can be logged directly without any conversion to a string value.
+
+```c++
+turbo::Status my_status = DoSomething();
+// Don't do this:
+//
+//   if (my_status.code() == turbo::StatusCode::kOk) { ... }
+//
+// Use the Status.ok() helper function:
+if (!my_status.ok()) {
+  LOG(WARNING) << "Unexpected error " << my_status;
+}
+```
+
+Similarly, instead of checking for specific `turbo::StatusCode` error codes such as `turbo::StatusCode::kInvalidArgument`, you can use helper functions like `turbo::IsInvalidArgument(status)`.
+
+Handling multiple error codes may warrant the use of a `switch` statement, but only check for error codes you know how to handle; do not attempt to exhaustively match against all canonical error codes. Errors that cannot be handled should be logged and/or propagated for higher-level handling.
+
+If you do use a `switch` statement to distinguish status codes, ensure that you also provide a `default:` case so that the code does not break as additional canonical codes are added to the API.
+
+```c++
+turbo::Status s = Open(filename, "r");
+if (turbo::IsNotFound(s)) {
+  s = Create(...);
+}
+if (!s.ok()) {  // Either Open or Create failed
+  LOG(WARNING) << "Unexpected error " << s;
+}
+```
+
+## Returning a Status or a Value
+
+Suppose a function needs to return a value on success, or a `Status` on error. The Turbo Status library provides the `turbo::Result<T>` class template for this purpose. `turbo::Result<T>` represents a union of a `turbo::Status` object and an object of type `T`. A `turbo::Result<T>` will either contain an object of type `T` (indicating the operation succeeded) or an error (of type `turbo::Status`) explaining why no such value exists. Note that `Result<T>` cannot hold an OK status, as that would imply a value should be returned.
+
+In general, checking if an operation returning `turbo::Result<T>` succeeded is just like using the `ok()` member function to get the `turbo::Status`.
+
+```c++
+Result<Foo> result = Calculation();
+if (result.ok()) {
+  result->DoSomethingCool();
+} else {
+  LOG(ERROR) << result.status();
+}
+```
+
+On success, accessing the object held by `turbo::Result<T>` should be done via `operator*` or `operator->` after confirming with `ok()` that the `turbo::Result<T>` holds an object of type `T`:
+
+```c++
+turbo::Result<int> i = GetCount();
+if (i.ok()) {
+  updated_total += *i;
+}
+```
+
+`turbo::Result<T*>` can be constructed from a null pointer value like any other pointer, and the result will have `ok()` return `true` and `value()` return `nullptr`. Checking the value of a pointer in `turbo::Result<T>` usually requires extra care to ensure the value exists and that the value is not null:
+
+```c++
+Result<std::unique_ptr<Foo>> result = FooFactory::MakeNewFoo(arg);
+if (!result.ok()) {
+  LOG(ERROR) << result.status();
+} else if (*result == nullptr) {
+  LOG(ERROR) << "Unexpected null pointer";
+} else {
+  (*result)->DoSomethingCool();
+}
+```
+
+## Ignoring Status Results
+
+It is an error if a `Status` value returned by a function is ignored. In some cases, ignoring the result is the correct thing to do, which you can achieve by using `ignore_error()`:
+
+```c++
+// Don't let caching errors fail the response.
+StoreInCache(request, response).ignore_error();
+```
+
+Think carefully before using `ignore_error()`. Unless you have a good reason, prefer to actually handle the return value: perhaps you can verify that the result matches an error you expect, or you can export it for monitoring.
+
+## Tracking the First Error Encountered
+
+Use `Status::update()` to track the first non-OK status encountered in a sequence of processes. `update()` will overwrite an existing `OK` status but will not overwrite an existing error code with another value.
+
+For example, suppose you want to perform two operations (regardless of whether the first operation fails), but want to return an error if either operation fails. Instead of:
+
+```c++
+turbo::Status s = Operation1();
+turbo::Status s2 = Operation2();
+if (s.ok()) s = s2;
+```
+
+use
+
+```c++
+turbo::Status s = Operation1();
+s.update(Operation2());
+```
+`update()` preserves information about the first error encountered, such as its error code, message, and any payload.
+
+## Check Macros
+
+`Status` provides `macros` for checking: if the checked `Status` is `OK`, the macro will continue executing the subsequent code; otherwise, it will return the checked `Status`.
+
+```cpp
+turbo::Status good_func() {
+    return turbo::Status();
+}
+
+turbo::Status not_found_func() {
+    return turbo::Status(turbo::StatusCode::kNotFound,"bad");
+}
+
+turbo::Status call_func() {
+    STATUS_RETURN_IF_ERROR(some_func());
+    std::cout<<"this should display"<<std::endl;
+    STATUS_RETURN_IF_ERROR(some_func());
+    std::cout<<"this should not display"<<std::endl;
+    return turbo::Status();
+}
+```

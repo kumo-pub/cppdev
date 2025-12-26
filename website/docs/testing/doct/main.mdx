@@ -1,0 +1,57 @@
+# `main()` Entry Point
+
+## main() Entry Point {#doctest_config_implement_with_main}
+
+A common approach to writing tests in C++ is always to separate test code into a distinct source file, creating an executable that contains only tests. In such cases, the default ```main()``` provided by **doctest** is usually sufficient:
+
+```c++
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest.h"
+```
+This should be done in one source file, and it is even better to do this in a separate file that contains nothing else.
+
+However, if you need more control - such as wanting to set options for the execution context in code, or wanting to integrate the framework into production code - then the default `main()` will not suffice. In such cases, use [**```DOCTEST_CONFIG_IMPLEMENT```**](configuration.mdx#doctest_config_implement).
+
+All [**command line**](commandline.mdx) options can be set this way (flags cannot, as it makes no sense). Filters can only be added or cleared using the `addFilter()` or `clearFilters()` methods of the `doctest::Context` object - users cannot remove specific filters via code.
+
+```c++
+#define DOCTEST_CONFIG_IMPLEMENT
+#include "doctest.h"
+
+int main(int argc, char** argv) {
+    doctest::Context context;
+
+    // !!! THIS IS JUST AN EXAMPLE SHOWING HOW DEFAULTS/OVERRIDES ARE SET !!!
+
+    // defaults
+    context.addFilter("test-case-exclude", "*math*"); // exclude test cases with "math" in their name
+    context.setOption("abort-after", 5);              // stop test execution after 5 failed assertions
+    context.setOption("order-by", "name");            // sort the test cases by their name
+
+    context.applyCommandLine(argc, argv);
+
+    // overrides
+    context.setOption("no-breaks", true);             // don't break in the debugger when assertions fail
+
+    int res = context.run(); // run
+
+    if(context.shouldExit()) // important - query flags (and --exit) rely on the user doing this
+        return res;          // propagate the result of the tests
+    
+    int client_stuff_return_code = 0;
+    // your program - if the testing framework is integrated in your production code
+    
+    return res + client_stuff_return_code; // the result from doctest is propagated here as well
+}
+
+```
+
+Note the call to ```.shouldExit()``` on the context - this is very important - it will be set when query flags are used (or the ```--no-run``` option is set to "true"), and it is the user's responsibility to exit the application in the normal way.
+
+### Dealing with Shared Objects (DLLs)
+
+The framework can be used independently in binaries (executables/shared objects), with each having its own test runner - this even allows using different versions of doctest - but there is no simple way to execute tests from all loaded binaries and have the results aggregated and summarized.
+
+There is also an option to build the test runner (implementation) into one binary and share it with others by exporting its public symbols (the symbols needed for users to write tests - all forward declarations) - thus having a single test registry for the framework.
+
+For more information on this, check the [**```DOCTEST_CONFIG_IMPLEMENTATION_IN_DLL```**](configuration.mdx#doctest_config_implementation_in_dll) configuration identifier and [**this example**](https://github.com/doctest/doctest/blob/master/examples/executable_dll_and_plugin/).

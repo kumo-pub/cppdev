@@ -1,0 +1,61 @@
+# String Replacement
+
+## `turbo::substitute()` - String Replacement
+
+Setting the format of strings displayed to users usually has different requirements. Traditionally, most C++ code uses built-in functions such as `sprintf()` and `snprintf()`; these functions have certain issues because they do not support `std::string_view` and require manual management of formatting buffer memory.
+
+```cpp
+// Bad. Need to worry about buffer size and NUL-terminations.
+
+std::string GetErrorMessage(char *op, char *user, int id) {
+  char buffer[50];
+  sprintf(buffer, "Error in %s for user %s (id %i)", op, user, id);
+  return buffer;
+}
+```
+
+```cpp
+// Better. Using turbo::str_cat() avoids the pitfalls of sprintf() and is faster.
+std::string GetErrorMessage(std::string_view op, std::string_view user, int id) {
+  return turbo::str_cat("Error in ", op, " for user ", user, " (", id, ")");
+}
+```
+
+```cpp
+// Best. Using turbo::substitute() is easier to read and to understand.
+std::string GetErrorMessage(std::string_view op, std::string_view user, int id) {
+  return turbo::substitute("Error in $0 for user $1 ($2)", op, user, id);
+}
+```
+
+`turbo::substitute()` combines the efficiency and type safety features of `turbo::str_cat()` with the parameter binding of traditional functions such as `sprintf()`. `turbo::substitute` uses a format string containing position identifiers indicated by a dollar sign ($) followed by a single-digit position ID, which specifies which replacement argument to use at that position in the format string.
+
+```cpp
+std::string s = substitute("$1 purchased $0 $2. Thanks $1!", 5, "Bob", "Apples");
+// Produces the string "Bob purchased 5 Apples. Thanks Bob!"
+
+std::string s = "Hi. ";
+SubstituteAndAppend(&s, "My name is $0 and I am $1 years old.", "Bob", 5);
+// Produces the string "Hi. My name is Bob and I am 5 years old."
+```
+
+Note, however, that `turbo::substitute()` is slower than `turbo::str_cat()` because it needs to parse the format string at runtime. Choose `substitute()` only when code clarity is more important than speed.
+
+### Differences from string_printf()
+
+`turbo::substitute` differs from `string_printf()` in the following ways:
+
+* The format string does not recognize the types of arguments. Instead, arguments are implicitly converted to strings.
+* Replacements in the format string are identified by "$" followed by a number. You can use arguments out of order and use the same argument multiple times.
+* A "$$" sequence in the format string represents a literal "$" character in the output.
+* `turbo::substitute()` is significantly faster than `string_printf()`. For very large strings, the speed may be several orders of magnitude faster.
+
+### Supported Types
+
+`turbo::substitute()` understands the following types:
+
+* `std::string_view`, `std::string`, `const char*` (null is equivalent to "")
+* `int32_t`, `int64_t`, `uint32_t`, `uint64_t`
+* `float`, `double`
+* `bool` (printed as "true" or "false")
+* Pointer types other than char* (printed as `0x<lowercase hexadecimal string>`, except null which is printed as "NULL")

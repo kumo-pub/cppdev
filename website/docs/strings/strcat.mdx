@@ -1,0 +1,89 @@
+# String Concatenation
+
+## `turbo::str_cat()` and `turbo::str_append()` for String Concatenation
+
+Most documentation on C++ string usage mentions that, unlike other languages, strings in C++ are mutable;
+however, modifying strings can be costly because strings typically contain large amounts of data, and many patterns involve creating temporary copies,
+which can incur significant overhead. Always look for ways to reduce the creation of such temporaries.
+
+For example, the following code is inefficient:
+
+```cpp
+// Inefficient code
+std::string s1 = "A string";
+s1 = s1 + " another string";
+```
+
+The assignment operator above creates a temporary string, copies `s1` into this temporary string, concatenates the temporary string, and then assigns it back to `s1`. Instead, use the optimized `+=` operator for such concatenations:
+
+```cpp
+// Efficient code
+s1 += " another string";
+```
+
+A good compiler may be able to optimize the previous inefficient code. However, operations involving multiple concatenations usually cannot avoid temporaries:
+
+```cpp
+// Inefficient code
+std::string s1 = "A string";
+std::string another = " and another string";
+s1 += " and some other string" + another;
+```
+
+Therefore, Turbo provides the `turbo::str_cat()` and `turbo::str_append()` functions for efficiently concatenating and appending strings. `turbo::str_cat()`
+and `turbo::str_append()` are generally more efficient than operators like `+=` because they do not require creating temporary `std::string` objects, and their memory is preallocated during string construction.
+
+```cpp
+// Inefficient code
+std::string s1 = "A string";
+std::string another = " and another string";
+s1 += " and some other string" + another;
+```
+
+```cpp
+// Efficient code
+std::string s1 = "A string";
+std::string another = " and another string";
+turbo::str_append(&s1, " and some other string", another);
+```
+
+For this reason, you should make a habit of choosing `turbo::str_cat()` or `turbo::str_append()` over using concatenation operators.
+
+### `turbo::str_cat()`
+
+`turbo::str_cat()` merges an arbitrary number of strings or numbers into a single string, and is designed to be the fastest way to construct strings from a mix of raw C strings, `turbo::string_view` elements, `std::string` values, as well as boolean and numeric values. `str_cat()` is generally more efficient for string concatenations involving multiple binary operators (e.g., `a + b + c` or `a += b + c`) because they avoid creating temporary string objects during string construction.
+
+```cpp
+// turbo::str_cat() can merge an arbitrary number of strings
+std::string s1;
+s1 = turbo::str_cat("A string ", " another string", "yet another string");
+
+// str_cat() also can mix types, including std::string, string_view, literals,
+// and more.
+std::string s1;
+std::string s2 = "Foo";
+turbo::string_view sv1 = MyFunction();
+s1 = turbo::str_cat(s2, sv1, "a literal");
+```
+
+`str_cat()` provides automatic formatting for the following types:
+
+*   `std::string`
+*   `turbo::string_view`
+*   String literals
+*   Numeric values (floats, ints)
+*   Boolean values (convert to "0" or "1")
+*   Hex values through use of the `turbo::Hex()` conversion function
+
+Floating-point values are converted to strings using the same format as the STL's `std::basic_ostream::operator<<`, i.e., 6 digits of precision, using "e" format when the magnitude is less than `0.001` or greater than or equal to `1e+6`.
+
+You can convert to hexadecimal output instead of decimal using the `turbo::Hex` type. To do this, pass `Hex(my_int)` as an argument to `str_cat()` or `str_append()`. You can specify a minimum hexadecimal field width using the `turbo::PadSpec` enumeration, so the equivalent of `StringPrintf("%04x", my_int)` is `turbo::str_cat(turbo::Hex(my_int,turbo::kZeroPad4))`.
+
+### `turbo::str_append()`
+
+For clarity and performance, do not use `turbo::str_cat()` when appending to a string. Use `turbo::str_append()` instead. In particular, avoid any of the following (anti-)patterns:
+```cpp
+str.append(turbo::str_cat(...))
+str += turbo::str_cat(...)
+str = turbo::str_cat(str, ...)
+```

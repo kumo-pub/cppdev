@@ -1,0 +1,75 @@
+# Configure Logging
+
+Several flags affect the output behavior of `log`.
+
+## Configure Log Output Using `Flags`
+
+The following flags are the most commonly used:
+
+`logtostderr` (`bool`, default=`false`)
+
+:   Log messages to `stderr` instead of logfiles.
+
+### `stderr_threshold` {#stderr_threshold}
+
+* Type: `int`, default = 2 (i.e., `ERROR`).
+Copy log messages at or above this level to `stderr` in addition to log files. The numeric values for log levels `INFO`, `WARNING`, `ERROR`, and `FATAL` are 0, 1, 2, and 3 respectively.
+* Supports dynamic update.
+
+### `min_log_level` {#min_log_level}
+
+* Type: `int`, default = 0 (i.e., `INFO`).
+* Log messages at or above this level. Again, the numeric values for log levels `INFO`, `WARNING`, `ERROR`, and `FATAL` are 0, 1, 2, and 3 respectively.
+* Supports dynamic update.
+
+### `log_with_prefix` {#log_with_prefix}
+
+* Type: `bool`, default = true.
+* Add a log prefix to the beginning of each log line.
+* Supports dynamic update.
+
+### `verbosity` {#verbosity}
+
+* Type: `int`, default = 0 (i.e., **no verbose logs output**).
+* Display all `VKLOG(m)` messages where `m <= this value`. May be overridden by `vlog_module`.
+* Supports dynamic update.
+
+### `vlog_module` {#vlog_module}
+
+* Type: `string`, default = "" (i.e., **no verbose logs output**).
+* Per-module log verbosity level. The parameter is a comma-separated list of `<module name>=<log level>`. `<module name>` is a glob pattern that matches against the filename base (i.e., the name with `.cc/.h/.-inl.h` stripped).
+Patterns without slashes match only the filename part; otherwise, they match the entire file path relative to the workspace root (still with `.cc/.h/.-inl.h` stripped). `?` and `*` in the glob pattern match any single character or sequence of characters (including slashes) respectively. `<log level>` overrides any value given by `--verbosity`.
+
+### `backtrace_log_at` {#backtrace_log_at}
+
+* Type: `string`, default = "" (i.e., **no stack trace logs output**).
+* Print a stack trace when logging is triggered at `file:linenum`.
+* Supports dynamic update.
+
+### `log_type` {#log_type}
+
+Parameter used during log initialization.
+* Type: `int`, default = 0.
+* Log type corresponding to LogSinkType:
+    * 0: Console log
+    * 1: Daily log file
+    * 2: Hourly log file
+    * 3: Rotating log file
+* **Does not support dynamic update**.
+
+## Modify Flags Programmatically
+
+You can also modify flag values within the program by updating global variables `FLAGS_*`. Most settings take effect immediately after updating `FLAGS_*`,
+except for flags related to target files.
+
+
+!!! Example: "Set Log Level at Runtime"
+
+```cpp
+KLOG(INFO) << "file";
+// Most flags work immediately after updating values.
+turbo::set_flag(&FLAGS_min_log_level,static_cast<int>(turbo::LogSeverity::kWarning));
+KLOG(INFO) << "should not display";
+turbo::set_flag(&FLAGS_min_log_level,static_cast<int>(turbo::LogSeverity::kInfo));
+KLOG(INFO) << "should display";
+```

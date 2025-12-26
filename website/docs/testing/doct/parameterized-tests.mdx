@@ -1,0 +1,170 @@
+# Parameterized Tests {#parameterized-test-cases}
+
+Test cases can be easily parameterized by type, and indirectly parameterized by value as well.
+
+## Value-Parameterized Test Cases {#value-parameterized-test-cases}
+
+Proper support for this will be added in the future. Currently, there are two ways to perform data-driven testing in doctest:
+
+- Extract assertions into a helper function and call it with a user-constructed array of data:
+
+    ```c++
+    void doChecks(int data) {
+        // do asserts with data
+    }
+
+    TEST_CASE("test name") {
+        std::vector<int> data {1, 2, 3, 4, 5, 6};
+
+        for(auto& i : data) {
+            CAPTURE(i); // log the current input data
+            doChecks(i);
+        }
+    }
+    ```
+
+    This has several drawbacks:
+    - If an exception is thrown (or a "REQUIRE" assertion fails), the entire test case ends, and no checks are performed on the remaining input data
+    - The user must manually log the data by calling "CAPTURE()" (or "INFO()")
+    - More boilerplate code - doctest should provide primitives for generating data, but currently does not - so the user has to write their own data generation
+
+- Use subcases to initialize data in different ways:
+
+    ```c++
+    TEST_CASE("test name") {
+        int data;
+        SUBCASE("") { data = 1; }
+        SUBCASE("") { data = 2; }
+
+        CAPTURE(data);
+
+        // do asserts with data
+    }
+    ```
+
+    Doing this has the following drawbacks:
+    - Poor scalability - writing such code for multiple different inputs is highly impractical
+    - The user must manually log the data by calling `CAPTURE()` (or `INFO()`)
+
+    --------------------------------
+
+    However, there is a simple way to encapsulate this into a macro (written using C++14 for simplicity):
+
+    ```c++
+    #include <algorithm>
+    #include <string>
+
+    #define DOCTEST_VALUE_PARAMETERIZED_DATA(data, data_container)                                  \
+        static size_t _doctest_subcase_idx = 0;                                                     \
+        std::for_each(data_container.begin(), data_container.end(), [&](const auto& in) {           \
+            DOCTEST_SUBCASE((std::string(#data_container "[") +                                     \
+                            std::to_string(_doctest_subcase_idx++) + "]").c_str()) { data = in; }  \
+        });                                                                                         \
+        _doctest_subcase_idx = 0
+    ```
+
+    It can now be used as follows:
+
+    ```c++
+    TEST_CASE("test name") {
+        int data;
+        std::list<int> data_container = {1, 2, 3, 4}; // must be iterable - std::vector<> would work as well
+
+        DOCTEST_VALUE_PARAMETERIZED_DATA(data, data_container);
+
+        printf("%d\n", data);
+    }
+    ```
+
+    And it will print 4 numbers by re-entering the test case 3 times (after the first entry) - just like subcases:
+
+    ```
+    1
+    2
+    3
+    4
+    ```
+
+    A major limitation of this approach is that the macro cannot be used with other subcases at the same indentation level of the same code block {} (it will behave strangely) - it can only be used inside a subcase.
+
+Stay tuned for proper value parameterization in doctest!
+
+## Templated Test Cases - Parameterized by Type {#templated-test-cases-parameterized-by-type}
+
+Suppose you have multiple implementations of the same interface and want to ensure all implementations meet some common requirements. Alternatively, you may have defined several types that should conform to the same "concept" and you want to verify this. In both cases, you want to repeat the same test logic for different types.
+
+While you could write a `TEST_CASE` for each type you want to test (and you could even factor out the test logic into a function template called from the test cases), it is tedious and does not scale: if you want to run `M` tests on `N` types, you end up writing `M * N` tests.
+
+Templated tests allow you to repeat the same test logic for a range of types. You only need to write the test logic once.
+
+There are two ways to do this:
+
+- Pass the list of types directly to the templated test case
+
+    ```c++
+    TEST_CASE_TEMPLATE("signed integers stuff", T, char, short, int, long long int) {
+        T var = T();
+        --var;
+        CHECK(var == -1);
+    }
+    ```
+
+- Define a templated test case with a specific unique name (identifier) for later instantiation
+
+    ```c++
+    TEST_CASE_TEMPLATE_DEFINE("signed integer stuff", T, test_id) {
+        T var = T();
+        --var;
+        CHECK(var == -1);
+    }
+
+    TEST_CASE_TEMPLATE_INVOKE(test_id, char, short, int, long long int);
+
+    TEST_CASE_TEMPLATE_APPLY(test_id, std::tuple<float, double>);
+    ```
+    If you are designing an interface or concept, you can define a suite of type-parameterized tests that verify the properties any valid implementation of the interface/concept should have. Then, the author of each implementation only needs to instantiate the test suite with their type to verify compliance, without having to repeatedly write similar tests.
+
+A test case named "signed integers stuff" instantiated for the type "int" will result in the following test case name:
+
+```
+signed integers stuff<int>
+```
+
+By default, all fundamental types (basic - ```int```, ``bool```, ``float```...) have stringification provided by the library. For all other types, the user must use the ``TYPE_TO_STRING(type)``` macro - like this:
+
+```c++
+TYPE_TO_STRING(std::vector<int>);
+```
+
+The ``TYPE_TO_STRING``` macro is only valid within the current source file, so if the same type is used in a separate source file for a templated test case, it needs to be placed in some header.
+
+Other test frameworks use the header ```<typeinfo>``` in addition to demangling to automatically get the type string, but doctest cannot include any headers in the forward declaration section (public part) of the header - so the user has to teach the framework about each type. This is done to achieve [maximum compile-time performance](benchmarks.mdx).
+
+Some notes:
+
+- Uniqueness of types is not filtered - the same templated test case can be instantiated multiple times for the same type - it is up to the user to prevent this
+- You do not need to provide stringification for each type, as it only affects the test case name - the default is ``<>`` - the tests are still valid and distinct
+- If you need to parameterize over more than 1 type, you can pack multiple types into one type like this:
+
+    ```c++
+    template <typename first, typename second>
+    struct TypePair
+    {
+        typedef first  A;
+        typedef second B;
+    };
+
+    #define pairs \
+        TypePair<int, char>, \
+        TypePair<char, int>
+
+    TEST_CASE_TEMPLATE("multiple types", T, pairs) {
+        typedef typename T::A T1;
+        typedef typename T::B T2;
+        // use T1 and T2 types
+    }
+    ```
+
+------
+
+- Check out the [**example**](https://github.com/doctest/doctest/blob/master/examples/all_features/templated_test_cases.cpp) which shows how to use all of these.

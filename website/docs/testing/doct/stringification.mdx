@@ -1,0 +1,92 @@
+# Stringification
+
+## String Conversions {#string-conversions}
+
+**doctest** needs to be able to convert types used in assertion and logging expressions into strings (for logging and reporting purposes).
+Most built-in types work out of the box, but you can tell **doctest** how to convert your own types (or other third-party types) into strings in three ways.
+
+For stringifying enums, check out [this issue](https://github.com/doctest/doctest/issues/121).
+
+## ```operator<<``` overload for ```std::ostream```
+
+This is the standard way to provide string conversion in C++ - you may already have this for your own purposes. If you're unfamiliar with this idiom, it involves writing a free function of the form:
+
+```c++
+std::ostream& operator<< (std::ostream& os, const T& value) {
+    os << convertMyTypeToString(value);
+    return os;
+}
+```
+
+(where "T" is your type, and `convertMyTypeToString` is where you write whatever code is needed to make your type printable - it doesn't have to be in a separate function).
+
+You should place this function in the same namespace as your type.
+
+Alternatively, you may prefer to write it as a member function:
+
+```c++
+std::ostream& T::operator<<(std::ostream& os) const {
+    os << convertMyTypeToString(*this);
+    return os;
+}
+```
+
+## ```doctest::toString``` overload
+
+If you don't want to provide a ``operator<<``` overload, or you want to convert a type differently for testing purposes, you can provide a ``toString()``` overload for your type that returns a ``doctest::String```.
+
+```c++
+namespace user {
+    struct udt {};
+    
+    doctest::String toString(const udt& value) {
+        return convertMyTypeToString(value);
+    }
+}
+```
+
+Note that the function must be in the same namespace as your type. If the type is not in any namespace - then the overload should be in the global namespace. ```convertMyTypeToString``` is where you write whatever code is needed to make your type printable.
+
+## ```doctest::StringMaker<T>``` specialisation
+
+In some cases, overloading `toString` may not work as expected. Specialising ```StringMaker<T>``` can give you more precise and reliable control - but at the cost of a little more code and complexity:
+```c++
+namespace doctest {
+    template<> struct StringMaker<T> {
+        static String convert(const T& value) {
+            return convertMyTypeToString(value);
+        }
+    };
+}
+```
+
+## Translating Exceptions {#translated-exceptions}
+
+By default, all exceptions derived from `std::exception` will be converted to strings by calling the `what()` method (which is also a C string). For exception types not derived from ```std::exception``` - or if ```what()``` does not return a suitable string - use ```REGISTER_EXCEPTION_TRANSLATOR```. This defines a function that takes the exception type and returns a `doctest::String`. It can appear anywhere in the code - it does not have to be in the same translation unit. For example:
+```c++
+REGISTER_EXCEPTION_TRANSLATOR(MyType& ex) {
+    return doctest::String(ex.message());
+}
+```
+
+Note that exceptions can be accepted without a reference, but this is considered bad practice in C++.
+
+Another way to register an exception translator is to do the following in some function before any tests are executed:
+
+```c++
+    // adding a lambda - the signature required is `doctest::String(exception_type)`
+    doctest::registerExceptionTranslator<int>([](int in){ return doctest::toString(in); });
+```
+The order in which exception translators are registered can be controlled - simply call the explicit functions in the desired order, or list the exception translators with macros in a top-to-bottom fashion in a single translation unit - everything that is auto-registered in doctest works in a top-to-bottom fashion for a single translation unit (source file).
+
+You can also [override the translation mechanism](https://github.com/catchorg/Catch2/issues/539#issuecomment-454549904) for exceptions deriving from ``std::exception```.
+
+------
+
+- Check out the [**example**](https://github.com/doctest/doctest/blob/master/examples/all_features/stringification.cpp) which shows how to stringify ```std::vector<T>``` and other types/exceptions.
+- Note that when specialising ```StringMaker<T>``` or overloading ```toString()```, the type ```String``` is used - this is the string type **doctest** uses. ```std::string``` is not an option because doctest would have to include the ```<string>``` header.
+- To support ```operator<<(std::ostream&...``` stringification, the library has to provide a forward declaration of ```std::ostream```, which is what the library does - however it currently works on all tested compilers, but if the user wants 100% 
+  standard compliance, then the [**```DOCTEST_CONFIG_USE_STD_HEADERS```**](configuration.mdx#doctest_config_use_std_headers) identifier
+  can be used to force inclusion of the ```<iosfwd>``` header. The reason the header is not included by default is that on MSVC (for 
+  example) it drags in a whole lot of stuff - and after that header the translation unit has grown to 42k lines of C++ code - whereas
+  Clang and libc++ implement it very well and including ``<iosfwd>`` results in 400 lines of code.

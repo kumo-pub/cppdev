@@ -1,0 +1,35 @@
+# Install from Source
+
+## CMake
+
+The `log` module of `kumo` is integrated into `turbo`, located in the `turbo/log` directory.
+
+[CMake](http://www.cmake.org) can be used for compilation across a wide range of platforms. A typical workflow for building `turbo` on GNU-based Unix-like systems with `make` as the build tool is as follows:
+
+1. Clone the repository and navigate to the source directory.
+  ```bash
+  git clone https://github.com/kumose/turbo.git
+  cd turbo
+  ```
+2. Run CMake to configure the build tree.
+  ```bash
+  cmake -S . -B build -G "Unix Makefiles"
+  ```
+
+CMake provides different generators, and by default selects the one most relevant to the current environment. To specify a generator explicitly, use `cmake . -G <generator-name>` to generate the target build system.
+Available generators can be viewed with `cmake --help`.
+
+3. Use the generated files to compile the project.
+  ```bash
+  cmake --build build
+  ```
+4. Test the project (optional).
+  ```bash
+  cmake --build build --target test
+  ```
+5. Install the compiled files (optional).
+  ```bash
+  cmake --build build --target install
+  ```
+
+After successful compilation, [integrate](usage.mdx) `turbo/log` into your project.

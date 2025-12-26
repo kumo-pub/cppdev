@@ -1,0 +1,233 @@
+# Logging
+
+The turbo Logging library provides tools for writing short text messages about program state to `stderr`, `disk files`, or `other receivers` (via the extension API).
+
+## API Overview {#API}
+
+The `KLOG()` and `kCHECK()` macro families are the core of the API. Each forms the start of a statement into which additional data can be streamed, much like `std::cout`.
+
+All data streamed into a single macro will be concatenated and written to the log file as one message, with a [prefix](#prefix) formed from metadata (time, file/line, etc.). Notably, unlike `std::cout`, the library supplies a newline at the end of each message, so you should generally not end log statements with `\n` or `std::endl`. Any newlines *that are* streamed in will appear in the log file.
+
+For more detailed information, refer to the header files.
+
+### `KLOG()` Macro {#KLOG}
+
+`KLOG()` takes a severity level as an argument, which defines the granularity and type of logging information to be recorded. The four basic severity levels are `INFO`, `WARNING`, `ERROR`, and `FATAL`. `FATAL` is not named arbitrarily; it causes the logging library to terminate the process after recording the streamed message.
+See below for more information on [log levels](#severity), including best practices for choosing one.
+
+```c++
+KLOG(INFO) << "Hello Kumo!";
+```
+
+This will generate a message in the log like the following:
+
+```text
+I0926 09:00:00.000000 12345 foo.cc:10] Hello Kumo!
+```
+
+The format of the metadata is documented [below](#prefix).
+
+### `kCHECK()` Macro {#kCHECK}
+
+`kCHECK()` is an assertion. Its severity is always `FATAL`, so its only argument is a condition that `should` be true. If not, `kCHECK()` writes to the log and terminates the process. It is active in **all build modes** (unlike the C `assert()` macro) and logs failures to the application log in a manner similar to `KLOG()`, but includes additional information about the reason for the failure and where it occurred.
+
+Like `FATAL`, `CHECK()` assertions should be used sparingly (especially in server code) and only in cases where it is better to actually terminate the process rather than attempt recovery: for example, unrecoverable errors, or memory corruption that could corrupt user data. Note that you should also be aware of where your code may be running; a `kCHECK()` in a command-line utility or batch processing job requires less caution than a `CHECK()` in a user-facing service. If you are unsure where the code will run (e.g., if you are writing a utility library), err on the side of caution and assume it will be used in production-facing services, and avoid `kCHECK()` whenever possible.
+
+```c++
+kCHECK(!filenames_sorted.empty()) << "no files matched";
+ProcessFile(filenames_sorted.front());
+```
+This will generate a message in the log like the following:
+
+```
+F0926 09:00:01.000000   12345 foo.cc:100] Check failed: !filenames_sorted.empty() no files matched
+E0926 09:00:01.150000   12345 process_state.cc:1133] *** SIGABRT received by PID 12345 (TID 12345) on cpu 0 from PID 12345; stack trace: ***
+E0926 09:00:01.250000   12345 process_state.cc:1136] PC: @     0xdeadbeef  (unknown)  raise
+    @     0xdeadbeef       1920  FailureSignalHandler()
+    @     0xdeadc0w5    2377680  (unknown)
+(more stack frames follow)
+```
+
+Note that this log entry uses the prefix `F` for the `FATAL` log level. The text of the condition itself is recorded before the streamed operands.
+Additionally, the stack trace is logged at severity `ERROR` (on lines prefixed with `E` for `ERROR`) after the `FATAL` message but before process termination.
+
+A special two-argument form is spelled `CHECK_EQ()`, `CHECK_GT()`, `CHECK_STREQ()` (for `char*` strings), etc., which can be used to assert comparisons between streamable, comparable types. In addition to the text of the arguments, these forms record the actual values of the arguments.
+
+```c++
+int x = 3, y = 5;
+CHECK_EQ(2 * x, y) << "oops!";
+```
+This will generate a message in the log like the following:
+
+```
+F0926 09:00:02.000000   12345 foo.cc:20] Check failed: 2 * x == y (6 vs. 5) oops!
+```
+
+### Log Levels {#severity}
+
+The `turbo::LogSeverity` type represents severity levels. The argument to `KLOG()` is not actually of this type, or *any* type. Some macro trickery is used to make `KLOG(ERROR)` work without using a macro or global symbol named `ERROR`. This is necessary because `ERROR` is defined by some popular third-party packages (e.g., Microsoft Windows) and cannot be redefined.
+
+#### Four Proper Log Levels
+
+##### `INFO` {#severity-info}
+
+Corresponds to `turbo::LogSeverity::kInfo`. It describes *expected* events that are important for understanding the state of the *program* but do not indicate a problem. Libraries, especially low-level public libraries, should use this level sparingly to avoid spamming the logs of every program that uses them.
+
+##### `WARNING` {#severity-warning}
+
+Corresponds to `turbo::LogSeverity::kWarning`. It describes unexpected events that *may* indicate a problem but from which the program can recover.
+
+##### `ERROR` {#severity-error}
+
+Corresponds to `turbo::LogSeverity::kError`. It describes unexpected problematic events from which the program was able to recover. `ERROR` messages should be actionable, meaning they should describe an actual problem with the software or its configuration (rather than, for example, user input) and the combination of message, filename and line number, and surrounding messages should be at least sufficient to understand the reported event.
+
+##### `FATAL` {#severity-fatal}
+
+Corresponds to `turbo::LogSeverity::kFatal` and is the implicit severity level for `kCHECK` failures. It describes an unrecoverable problem. Logging at this level terminates the process. The `FATAL` logging level should be used cautiously, especially for services—particularly user-facing services—and for library code that may be included in such services. Every fatal log is a potential outage if a large portion of service workers experience it simultaneously.<br />
+Fatal logging is generally more appropriate for developer tools, certain batch jobs, and failures at job startup. That said, process termination and outages are always better than undefined behavior (which may include user data corruption and/or security or privacy incidents), so `FATAL` is sometimes appropriate even in server and library code as a last resort response to unexpected behavior that cannot be handled in any other way.
+
+#### Two Pseudo-Levels
+
+##### `DFATAL` {#severity-dfatal}
+("debug fatal") corresponds to `turbo::kLogDebugFatal`. In optimized builds, its value is `ERROR` (e.g., in production) and `FATAL` in other builds (e.g., tests). It can be used to ensure that unexpected events cause test failures (by terminating the process) but do not harm production. Since production workers will continue after a `DFATAL` failure, ensure recovery is graceful.
+
+##### `QFATAL` {#severity-qfatal}
+("quiet fatal") has no corresponding `turbo::LogSeverity` value. It behaves like `FATAL`, except that no stack trace is logged and `atexit()` handlers are not run. This is usually the best choice for errors that occur at startup (e.g., flag validation), where control flow is uninteresting and diagnostics are unnecessary.
+
+### Dynamic Log Levels
+If you want to specify the severity level using a C++ expression—for example, so that the level used varies at runtime—you can do so as well:
+
+```c++
+KLOG(LEVEL(MoonPhase() == kFullMoon ? turbo::LogSeverity::kFatal
+                                   : turbo::LogSeverity::kError))
+      << "Spooky error!";
+```
+
+### `VKLOG()` Macro {#VKLOG}
+
+`VKLOG()` ("verbose log") is used for runtime-configurable debug logging. This macro takes a non-negative integer verbosity level as an argument—`INFO` is implied as the severity. Verbosity level values are arbitrary, but lower values correspond to more visible messages. Non-zero verbosity levels are disabled by default, and the performance cost of disabled `VKLOG()` is very small, so it is acceptable to use `VLOG()` liberally in most parts of Kumo without risk of significant performance degradation.
+
+```c++
+Foo::Foo(int num_bars) {
+  VKLOG(4) << "Constructing a new Foo with " << num_bars << " Bars";
+  for (int i = 0; i < num_bars; i++) bars_.push_back(MakeBar(this));
+}
+```
+Setting the `--verbosity` flag will turn on all `VKLOG()` messages at or below the specified level. This can make your logs hard to read and/or fill your disk. The `--vmodule` flag allows setting different levels for different source files; it takes a comma-separated list of `key=value` pairs where each key is a glob that matches filenames and each value is the verbosity level that should apply to matching files. Verbosity logging levels can also be changed at runtime using `turbo::set_vlog_level` and `turbo::set_global_vlog_level`:
+
+```c++
+class FooTest : public testing::Test {
+ protected:
+  FooTest() {
+    // Crank up the `VKLOG()` level for `Foo` since it does not log much otherwise:
+    turbo::set_vlog_level("foo_impl", 4);
+  }
+};
+```
+
+### Other Macro Variants {#mutators}
+
+The logging API includes numerous additional macros for special cases.
+
+- `QCHECK()` works like `kCHECK()` but has the same variant relationship to `QFATAL` as `kCHECK()` does to `FATAL`: it does not log a stack trace or run `atexit()` handlers on failure.
+   ```c++
+    int main (int argc, char**argv) {
+      turbo::ParseCommandLine(argc, argv);
+      QCHECK(!turbo::get_flag(FLAGS_path).empty()) << "--path is required";
+      ...
+   ```
+
+- `PKLOG()` and `PKCHECK()` automatically append a string describing `errno` to the logged message. They are useful for system library calls that set `errno` on failure to indicate the nature of the failure. Their names are intended to align with the `perror` library function.
+     ```c++
+        const int fd = open(path.c_str(), O_RDONLY);
+        PKCHECK(fd != -1) << "Failed to open " << path;
+
+        const ssize_t bytes_read = read(fd, buf, sizeof(buf));
+        PKCHECK(bytes_read != -1) << "Failed to read from " << path;
+
+        const int close_ret = close(fd);
+        if (close_ret == -1) PKLOG(WARNING) << "Failed to close " << path;
+     ```
+
+- `DKLOG()` ("debug log") and `DKCHECK()` disappear entirely from binaries in optimized builds. Note that `DKLOG(FATAL)` and `DKCHECK()` have very different semantics from `KLOG(DFATAL)`.<br />
+     Debug logging is useful for providing information that is helpful when debugging tests but costly to collect in production (e.g., acquiring contended locks):
+    ```c++
+    DKLOG(INFO) << server.State();
+    ```
+    Use `DKCHECK()` carefully; if it's worth checking in tests it may be worth checking in production too:
+    ```c++
+    DKCHECK(ptr != nullptr);
+    ptr->Method();
+    ```
+    `DKCHECK` is sometimes useful for checking invariants in very hot code paths where the check in tests must be relied upon to validate behavior in production.<br />
+    Like `assert()`, ensure you do not rely on the evaluation of side effects in `DKCHECK` and `DKLOG` statements:
+    ```c++ {.bad}
+    DKCHECK(server.Start());
+    // In an optimized build, no attempt will have been made to start the
+    // server!
+    ```
+
+- `LOG_IF()` adds a conditional argument, equivalent to an `if` statement. Like `if` and the ternary operator, the condition will be converted to `bool` based on context. Variants like `PLOG_IF()` and `DLOG_IF()` also exist.
+    ```c++
+    LOG_IF(INFO, turbo::get_flag(FLAGS_dry_run))
+        << "--dry_run set; no changes will be made";
+    ```
+
+- `LOG_EVERY_N()`, `LOG_FIRST_N()`, `LOG_EVERY_N_SEC()`, and `LOG_EVERY_POW_2()` add more complex conditions that are not easily replicated with a simple `if` statement. Each of these maintains a static state object per statement in storage, used to determine when it is time to log again. They are thread-safe.<br />
+     The token `COUNTER` can be streamed into these; it will be replaced with a monotonically increasing count of the number of times this statement has been executed, including times when logging occurred and times when it did not. Macro variants with additional conditions (e.g., `LOG_IF_EVERY_N()`) also exist, as do many combinations with `VKLOG()`, `PKLOG()`, and `DLOG()`.
+     ```c++
+    LOG_EVERY_N(WARNING, 1000) << "Got a packet with a bad CRC (" << COUNTER
+                               << " total)";
+    ```
+
+### Mutator Methods
+
+The `KLOG()` and `kCHECK()` macros support a number of chainable methods that alter their behavior.
+
+* `.AtLocation(std::string_view file, int line)`<br />
+Overrides the location inferred from the call site. The string pointed to by `file` must be valid until the end of the statement.
+
+* `.NoPrefix()`<br />
+Omits the [prefix](#prefix) in this line. The prefix contains metadata about the logged data, such as source code location and timestamp.
+
+* `.WithVerbosity(int verbose_level)`<br />
+Sets the verbosity field of the logged message as if it were emitted by `VLOG(verbose_level)`. Unlike `VLOG()`, this method does not affect whether the statement is evaluated when the specified `verbose_level` is disabled. The only effect is on `turbo::LogSink` implementations that use the `turbo::LogSink::verbosity()` value. The value `turbo::LogEntry::kNoVerbosityLevel` can be specified to mark the message as having no verbosity level.
+
+* `.WithTimestamp(turbo::Time timestamp)`<br />
+Uses the specified timestamp instead of the one collected at the time of execution.
+
+* `.WithThreadID(turbo::LogEntry::tid_t tid)`<br />
+Uses the specified thread ID instead of the one collected at the time of execution.
+
+* `.WithMetadataFrom(const turbo::LogEntry &entry)`<br />
+Copies all metadata (but not data) from the specified `turbo::LogEntry`.<br />
+This can be used to change the severity of a message, but it has some limitations:
+  * `TURBO_MIN_LOG_LEVEL` is evaluated based on the severity passed to `KLOG` (or the implicit `FATAL` level for `CHECK`).
+  * `KLOG(FATAL)` and `kCHECK` unconditionally terminate the process even if the severity is changed later.
+
+* `.WithPerror()`<br />
+Appends a colon, a space, the textual description of the current value of `errno` (as per `strerror(3)`), and the numeric value of `errno` to the logged message. The result is equivalent to `PKLOG()` and `PKCHECK()`.
+
+* `.ToSinkAlso(turbo::LogSink* sink)`<br />
+Sends this message to `*sink` in addition to any other sinks it would have been sent to otherwise. `sink` must not be null.
+
+* `.ToSinkOnly(turbo::LogSink* sink)`<br />
+Sends this message to `*sink` and no others. `sink` must not be null.
+
+## Log Message Output {#output}
+
+### Log Prefix {#prefix}
+
+Each message is logged with metadata in the following form:
+
+```
+I0926 09:00:00.000000   12345 foo.cc:10] Hello world!
+```
+
+The prefix starts with `I`, representing the `INFO` log level, combined with the date `0926`. The time is in microseconds, in the machine's local time zone. `12345` is the thread ID number. `foo.cc:10` is the location in the source code where the `KLOG()` statement appears, and the bracket and space are a fixed separator before the message itself.
+
+Prefixes can be suppressed globally using the `FLAGS_log_with_prefix` flag, or for individual messages using the `.NoPrefix()` [mutator method](#mutators).
+
+### `stderr` Output {#stderr}
+
+By default, a `LogSink` that writes to `stderr` is included and registered.

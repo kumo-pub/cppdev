@@ -1,0 +1,339 @@
+# Turbo Command-Line Flags (Turbo Flags)
+
+The `turbo/flags` library enables programmatic access to command-line flag values passed to binary executables. The `turbo/flags` library provides the following features:
+
+* Thread-safe access to `turbo/flags`
+* Access to valid flag values at any point during the program lifecycle
+* Prevention of flag name collisions by ensuring uniqueness of flag names within a single binary
+* Associated help text provided by many built-in flags
+* Native type support for `bool`, `int`, and `string`, with extensibility to support other Turbo types and custom types
+* Default values and programmatic access to flag values for reading and writing
+* Allows separate declaration and definition of flags (though this usage has drawbacks and should generally be avoided)
+* Supports pre-set validation when flags are dynamically set
+* Supports post-set callbacks when flags are dynamically set
+
+The values of these flags can be parsed from command-line arguments or files. The resulting value of each flag is stored in a global variable of type `turbo::Flag<T>` (where `T` is the specific type of the flag).
+
+## Defining Flags {#define_flags}
+
+Define a flag of the appropriate type using the `TURBO_FLAG(type, name, default, help-text)` macro:
+
+```cpp
+#include "turbo/flags/flag.h"
+#include "turbo/time/time.h"
+
+TURBO_FLAG(bool, big_menu, true,
+          "Include 'advanced' options in the menu listing");
+TURBO_FLAG(std::string, output_dir, "foo/bar/baz/", "output file directory");
+TURBO_FLAG(std::vector<std::string>, languages,
+          std::vector<std::string>({"english", "french", "german"}),
+          "comma-separated list of languages to offer in the 'lang' menu");
+TURBO_FLAG(turbo::Duration, timeout, turbo::Seconds(30), "Default RPC deadline");
+TURBO_FLAG(std::optional<std::string>, image_file, std::nullopt,
+          "Sets the image input from a file.");
+```
+
+A flag defined with `TURBO_FLAG` creates a global variable named `FLAGS_name` with the specified type and default value:
+```cpp
+FLAGS_name
+```
+
+### Standard Flags {#standard-flags}
+
+The Turbo flags library supports the following types out of the box:
+
+*   `bool`
+*   `int16_t`
+*   `uint16_t`
+*   `int32_t`
+*   `uint32_t`
+*   `int64_t`
+*   `uint64_t`
+*   `float`
+*   `double`
+*   `std::string`
+*   `std::vector<std::string>`
+*   `std::optional<T>` (see "Optional Flags" below)
+*   `turbo::LogSeverity` (provided natively for layering reasons)
+
+:::info TIPS
+Support for integer types is implemented using overloading for variable-width fundamental types (`short`, `int`, `long`, etc.). However, applications should prefer the fixed-width integer types listed above (`int32_t`, `uint64_t`, etc.).
+:::
+
+### Turbo Flags {#turbo-flags}
+
+In addition, some Turbo libraries provide their own custom support for `turbo flags`. Documentation for these formats is available in the documentation for the type where `turbo_parse_flag()` is defined.
+
+The Turbo [Time Library][time-library] provides flag support for absolute time values:
+
+* `turbo::Duration`
+* `turbo::Time`
+
+The [Civil Time Library][civiltime-library] also provides flag support for the following civil time values:
+
+* `turbo::CivilSecond`
+* `turbo::CivilMinute`
+* `turbo::CivilHour`
+* `turbo::CivilDay`
+* `turbo::CivilMonth`
+* `turbo::CivilYear`
+
+Additional support for other Turbo types will be noted here when added.
+
+See [Defining Custom Flag Types](#custom) for how to provide support for new flag types.
+
+You can define a flag in any `.cc` file in an executable, but **only define a flag once**! All flags should be defined outside of any C++ namespaces, so if multiple definitions of the same-named flag are linked into a single program, the linker will report an error. If you need to access a flag from multiple source files, define it in one `.cc` file and [declare](#declaring_flags) it in the corresponding header file.
+
+### Optional Flags
+
+The Turbo flags library supports flags of type `std::Optional<T>`, where `T` is one of the supported flag types. We refer to this flag type as an *optional flag of type `T`*.
+An optional flag is either *valueless* (containing no value of type `T`, indicating the flag has not been set) or holds a value of type `T`. The valueless state in C++ code is represented by the value `std::nullopt` for the optional flag.
+
+Using `std::nullopt` as the default value for an optional flag allows you to check whether such a flag was ever specified on the command line:
+
+```cpp
+if (turbo::GetFlag(FLAGS_foo).has_value()) {
+  // flag was set on command line
+} else {
+  // flag was not passed on command line
+}
+```
+
+Using `std::Optional<T>` in this way avoids common workarounds to indicate such an unset flag (e.g., using a sentinel value to indicate this state).
+
+Optional flags also allow developers to pass a flag in a valueless "unset" state on the command line, allowing the flag to be set later in the binary logic. A valueless state for an optional flag is represented by passing the special syntax `--flag=` or `--flag ""` to set the value to an empty string.
+
+```sh
+$ binary_with_optional --flag_in_unset_state=
+$ binary_with_optional --flag_in_unset_state ""
+```
+
+:::info
+Note: Due to the above syntax requirement, an optional flag cannot be set to any value of `T` that would parse to an empty string.
+:::
+
+## Reading Flags {#accessing-flags}
+
+Flags defined via `TURBO_FLAG` are available as variables of the unspecified type and named using the name passed to `TURBO_FLAG`. `turbo::GetFlag()` and `turbo::SetFlag()` can be used to access such flags. For example, for a flag of type `turbo::Duration`:
+
+```cpp
+// Creates variable "turbo::Flag<turbo::Duration> FLAGS_timeout;"
+// Example command line usage: --timeout=1m30s
+TURBO_FLAG(turbo::Duration, timeout, turbo::Seconds(30), "Default RPC timeout");
+
+// Read the flag
+turbo::Duration d = turbo::GetFlag(FLAGS_timeout);
+
+// Modify the flag
+turbo::SetFlag(&FLAGS_timeout, d + turbo::Seconds(10));
+```
+Access to `TURBO_FLAG` flags is **thread-safe**.
+
+## Using Flags in Different Files {#declaring_flags}
+
+Accessing a flag in the manner of the previous section is only valid if the flag was defined earlier in the same `.cc` file. If not, you will get an `'unknown variable'` error.
+
+If you need to allow other modules to access the flag, you must export it to some header file included by those modules. For a `TURBO_FLAG` flag named `FLAGS_name` of type `T`, use the `TURBO_DECLARE_FLAG(T, name);` macro defined in `turbo/flags/declare.h` to do so:
+
+```cpp
+#include "turbo/flags/declare.h"
+
+TURBO_DECLARE_FLAG(turbo::Duration, timeout);
+```
+
+Declarations should always be placed in the header file associated with the `.cc` file that defines and owns the flag, just like any other exported entity.
+If you need to do this only for testing, you can pair it with a `// Exposed for testing only` comment.
+
+:::warning
+Warning: The need to access flags from different files, especially in libraries, is often a sign of poor design. Given the "global variable" nature of flags, they should be avoided in libraries and instead injected (e.g., in constructors).
+:::
+
+## Validating Flag Values {#validating-flag-values}
+
+Certain flag values may be invalid. For example, the underlying type may have a larger range than is desired for the flag.
+
+For `TURBO_FLAG` flags, additional checks on flag values can be done by providing a custom type and adding an appropriate validation to the corresponding `turbo_parse_flag()` function, which defines how a specific flag should be parsed.
+
+Example:
+
+```c++
+#include <string>
+
+#include "turbo/flags/flag.h"
+#include "turbo/flags/marshalling.h"
+#include "turbo/strings/string_view.h"
+
+struct PortNumber {
+  explicit PortNumber(int p = 0) : port(p) {}
+
+  int port;  // Valid range is [0..32767]
+};
+
+// Returns a textual flag value corresponding to the PortNumber `p`.
+std::string turbo_unparse_flag(PortNumber p) {
+  // Delegate to the usual unparsing for int.
+  return turbo::unparse_flag(p.port);
+}
+
+// Parses a PortNumber from the command line flag value `text`.
+// Returns true and sets `*p` on success; returns false and sets `*error`
+// on failure.
+bool turbo_parse_flag(turbo::string_view text, PortNumber* p, std::string* error) {
+  // Convert from text to int using the int-flag parser.
+  if (!turbo::parse_flag(text, &p->port, error)) {
+    return false;
+  }
+  if (p->port < 0 || p->port > 32767) {
+    *error = "not in range [0,32767]";
+    return false;
+  }
+  return true;
+}
+
+TURBO_FLAG(PortNumber, port, PortNumber(0), "What port to listen on");
+```
+
+If `turbo_parse_flag()` returns `false` for a value specified on the command line, the process will exit with an error message. Note that `turbo_parse_flag()` does not initiate any parsing itself, but only defines parsing behavior.
+
+## Changing Default Flag Values {#changing-default-flag-value}
+
+Sometimes a flag is defined in a library, and you want to change its default value in one application but not in others.
+To do this, you can use `turbo::SetFlag()` to override this default value before invoking program startup; if the user does not pass a value on the command line, this new default value will be used:
+
+```cpp
+int main(int argc, char** argv) {
+  // Overrides the default for FLAGS_logtostderr
+  turbo::SetFlag(&FLAGS_logtostderr, true);
+  // If the command-line contains a value for logtostderr, use that. Otherwise,
+  // use the default (as set above).
+  ...
+}
+```
+
+Note that setting a flag *after* parsing the command line is generally neither useful nor recommended, as it ignores the user's intent with command-line flags, essentially setting the flag to a constant value.
+
+## Removing/Retiring Flags {#removing-retiring-flags}
+
+When a flag is no longer useful (and no longer referenced in code), in some cases the definition can simply be deleted. However, if the flag is referenced in configuration files, job startup scripts, etc., simply deleting the definition will cause deployment issues. For flags referenced in complex deployments where a single configuration may be used for multiple builds, it is impossible to satisfy all constraints. Handling timing and coordination in these cases is difficult, and you can mark some flags as *retiring* via `TURBO_RETIRED_FLAG()`.
+
+```cpp
+TURBO_RETIRED_FLAG(bool, old_bool_flag, true, "old description");
+```
+
+Retired flags have a number of important behaviors. Specifically, they:
+
+- Do not define a C++ `FLAGS_` variable.
+- Have a type and a value, but the value is intentionally inaccessible.
+- Do not appear in `--help` messages.
+- Are fully supported by _all_ flag parsing routines.
+- Consume arguments normally, and complain about type mismatches in those arguments.
+- Emit a complaint but do not die if accessed by name via flag APIs for parsing or other purposes.
+
+In this way, you can safely remove flags used in complex deployments: retire the flag, wait for releases of the affected binaries, then remove references to the flag from configuration files and startup scripts. Once all jobs start without logging warnings about referencing the retired flag, the retired flag can be deleted entirely.
+
+## Defining Custom Flag Types {#custom}
+
+For a type `T` to be usable as a Turbo flag type, it must support conversion to and from the strings provided on the command line. Custom types may have unique formats for this command-line string, and thus may require custom support for `turbo/flags`.
+
+To add support for a user-defined type, add overloads of `turbo_parse_flag()` and `turbo_unparse_flag()` as free (non-member) functions for your type. If `T` is a class type, these functions can be friend function definitions. These overloads must be added to the same namespace where the type is defined so they can be discovered via argument-dependent lookup (ADL).
+
+Example:
+
+```cpp
+namespace foo {
+enum class OutputMode { kPlainText, kHtml };
+
+// turbo_parse_flag converts from a string to OutputMode.
+// Must be in same namespace as OutputMode.
+
+// Parses an OutputMode from the command line flag value `text`. Returns
+// `true` and sets `*mode` on success; returns `false` and sets `*error`
+// on failure.
+bool turbo_parse_flag(turbo::string_view text,
+                   OutputMode* mode,
+                   std::string* error) {
+  if (text == "plaintext") {
+    *mode = OutputMode::kPlainText;
+    return true;
+  }
+  if (text == "html") {
+    *mode = OutputMode::kHtml;
+    return true;
+  }
+  *error = "unknown value for enumeration";
+  return false;
+}
+
+// turbo_unparse_flag converts from an OutputMode to a string.
+// Must be in same namespace as OutputMode.
+
+// Returns a textual flag value corresponding to the OutputMode `mode`.
+std::string turbo_unparse_flag(OutputMode mode) {
+  switch (mode) {
+    case OutputMode::kPlainText: return "plaintext";
+    case OutputMode::kHtml: return "html";
+    default: return turbo::StrCat(mode);
+  }
+}
+}  // namespace foo
+```
+
+Note that both `turbo_parse_flag()` and `turbo_unparse_flag()` are not class members, but free functions. Overloads of `turbo_parse_flag/turbo_unparse_flag()` for a type can only be declared in the same file and namespace where the type is defined. The correct `turbo_parse_flag/turbo_unparse_flag()` implementation for a given type will be discovered via argument-dependent lookup (ADL).
+
+`turbo_parse_flag()` may need to in turn parse simpler constituent types using `turbo::parse_flag()`. For example, a custom struct `MyFlagType` composed of `std::pair<int, std::string>` would add an overload of `turbo_parse_flag()` for its `MyFlagType` as follows:
+
+Example:
+
+```cpp
+namespace my_flag_namespace {
+
+struct MyFlagType {
+  std::pair<int, std::string> my_flag_data;
+};
+
+bool turbo_parse_flag(turbo::string_view text, MyFlagType* flag,
+                   std::string* err);
+
+std::string turbo_unparse_flag(const MyFlagType&);
+
+// Within the implementation, `turbo_parse_flag()` will, in turn invoke
+// `turbo::parse_flag()` on its constituent `int` and `std::string` types
+// (which have built-in Turbo flag support.
+
+bool turbo_parse_flag(turbo::string_view text, MyFlagType* flag,
+                   std::string* err) {
+  std::pair<turbo::string_view, turbo::string_view> tokens =
+      turbo::str_split(text, ',');
+  if (!turbo::parse_flag(tokens.first, &flag->my_flag_data.first, err))
+    return false;
+  if (!turbo::parse_flag(tokens.second, &flag->my_flag_data.second, err))
+    return false;
+  return true;
+}
+
+// Similarly, for unparsing, we can simply invoke `turbo::unparse_flag()` on
+// the constituent types.
+std::string turbo_unparse_flag(const MyFlagType& flag) {
+  return turbo::StrCat(turbo::unparse_flag(flag.my_flag_data.first),
+                      ",",
+                      turbo::unparse_flag(flag.my_flag_data.second));
+}
+}  // my_flag_namespace
+```
+
+### Best Practices for Defining Custom Flag Types
+
+* Declare `turbo_parse_flag()` and `turbo_unparse_flag()` in the same location as `T`, typically in the same file where `T` is declared.
+  If `T` is a class type, they can be defined with [friend _function-definitions_][friend-functions].
+* If you must declare `turbo_parse_flag()` and `turbo_unparse_flag()` far from the declaration of `T`, you must still be the owner of `T` and must guarantee that these functions are defined only once in the codebase.
+* Document the format string for flags that declare `turbo_parse_flag()` and `turbo_unparse_flag()`. As the owner of `T`, you are responsible for documenting this format.
+* `turbo::str_split("")` returns `{""}` (a list containing one element), so be careful with this if you are defining composite flag types.
+  Flags defined as `TURBO_FLAG(std::vector<std::string>, ...)` treat the empty string as an empty container.
+* Escape delimiters if they appear in values of composite flag types.
+* Call `turbo::parse_flag()` and `turbo::unparse_flag()` in your free function overloads to get the string conversion behavior implemented for constituent built-in types.
+* Only allow boolean flags to be passed without a value: e.g., `--enable_foo` or `--noenable_foo`. Thus, all custom flag types require an explicit value to be passed to `turbo_parse_flag()` and `turbo_unparse_flag()`, even if that value is an empty string (e.g., `--my_custom_flag=""`).
+
+[friend-functions]: http://en.cppreference.com/w/cpp/language/friend
+[time-library]: ../time/time.mdx#time-durations
+[civiltime-library]: ../time/time.mdx#civil-times
+[shell-expansions]: https://www.gnu.org/software/bash/manual/html_node/Shell-Expansions.html

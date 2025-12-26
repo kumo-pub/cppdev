@@ -1,0 +1,17 @@
+# Install via Package Manager
+
+## kmpkg
+
+`turbo/log` can be installed using `kmpkg`. Refer to [Install kmpkg](https://pub.kumose.cc/kmpkg/get_started/) for details.
+
+```bash
+kmpkg install turbo
+```
+After installation, in your project directory, you can use the following commands:
+
+```shell
+mkdir build
+cd build
+cmake -DCMAKE_TOOLCHAIN_FILE=$KMPKG_CMAKE ..
+```
+For more integration methods of `kmpkg`, please refer to the [kmpkg Documentation](https://pub.kumose.cc//kmpkg/get_started/).

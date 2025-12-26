@@ -1,0 +1,53 @@
+# Built-in `LogSink` Receivers
+
+Turbo includes several commonly used log receivers (`LogSink`) that support outputting logs to disk or `stderr` as the output source. 
+For special requirements such as outputting logs to the network, please refer to [Custom Log Receivers](sinks.mdx) to implement the functionality.
+
+## Daily Log {#daily-log}
+
+The `daily` log creates a new log file at a fixed time every day and outputs the day's logs to the new file. The `max_files` configuration parameter specifies the maximum number of days for which logs are retained.
+
+### Initialization
+```c++
+void setup_daily_file_sink(const std::string& base_filename,
+                                   int rotation_hour = 0,
+                                   int rotation_minute = 0,
+                                   int check_interval_s = 60,
+                                   bool truncate = false,
+                                   uint16_t max_files = 0);
+```
+
+## Hourly Log {#hourly-log}
+
+The `Hourly` log creates a new log file at a fixed minute or second every hour and outputs the current hour's logs to the new file. The `max_files` configuration parameter specifies the maximum number of hours for which logs are retained; converted to days, `max_files = day*24`.
+
+### Initialization
+```c++
+void setup_hourly_file_sink(const std::string& base_filename,
+                                  int rotation_minute = 0,
+                                  int check_interval_s = 60,
+                                  bool truncate = false,
+                                  uint16_t max_files = 0);
+```
+
+## Rotating File Log (Fixed Size) {#rotating_file}
+
+The `rotating` log creates a new log file when the log size reaches the set value (`max_file_size_mb`). 
+`max_files` specifies the maximum number of log files to retain.
+
+### Initialization
+```c++
+void setup_rotating_file_sink(const std::string& base_filename,
+                                    int max_file_size_mb = 100,
+                                    uint16_t max_files = 100,
+                                    bool truncate = false,
+                                    int check_interval_s = 60);
+```
+
+## Colored Terminal Log (Color Stderr) {#color_stderr}
+
+The startup function for the `color` log has no parameters and can be started directly.
+
+```c++
+ void setup_color_stderr_sink();
+```

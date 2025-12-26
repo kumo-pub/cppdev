@@ -1,0 +1,36 @@
+# Custom Log Sinks
+
+`turbo::LogSink` is an extension point for processing logged messages (e.g., by writing them to disk files). A message can be directed to it using the `.ToSinkOnly()` or `.ToSinkAlso()` [mutator methods](logging.mdx#mutators), or a sink can be registered to observe all logged messages (except those using `.ToSinkOnly()`) with `turbo::add_log_sink()` and unregistered with `turbo::remove_log_sink`. For example:
+
+## Basic Interface
+
+```c++
+class LinePrinterLogSink : public turbo::LogSink {
+ public:
+  LinePrinterLogSink() : fp_(fopen("/dev/lp0", "a")) {
+    PKCHECK(fp_ != nullptr) << "Failed to open /dev/lp0";
+  }
+  ~LinePrinterLogSink() {
+    fputc('\f', fp_);
+    PKCHECK(fclose(fp_) == 0) << "Failed to close /dev/lp0";
+  }
+  void Send(const turbo::LogEntry& entry) override {
+    for (std::string_view line :
+         turbo::sr_split(entry.text_message_with_prefix(), turbo::ByChar('\n'))) {
+      // Overprint severe entries for emphasis:
+      for (int i = static_cast<int>(turbo::LogSeverity::kInfo);
+           i <= static_cast<int>(entry.log_severity()); i++) {
+        turbo::FPrintF(fp_, "%s\r", line);
+      }
+      fputc('\n', fp_);
+    }
+  }
+
+ private:
+  FILE* const fp_;
+};
+```
+
+A `LogSink` receives two copies of each `FATAL` message: one without a `stacktrace`, followed by one with it. This quirk ensures that some diagnostic data can be observed even if stack trace collection fails or takes too long. The process will terminate immediately after the `LogSink` returns—meaning the sink does not need to call `abort()`.
+
+Any logging that occurs within a registered `LogSink` (or functions called by a registered `LogSink`) is sent only to `stderr`, not to any registered LogSinks, to avoid infinite recursion.

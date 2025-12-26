@@ -1,0 +1,36 @@
+# Standardized Error Codes
+The `Kumo` product is a large-scale system based on the MACH principle, designed with multi-layered APIs. To standardize the returned statuses, we minimize the number of error codes and reduce the complexity of usage.
+
+`Status` returns errors using `turbo::StatusCode`, an enumeration type that indicates either no error (`OK`) or an error condition.
+
+## Error Codes
+This is an error code table that you can use to select the appropriate error. Choose the most applicable specific error code.
+
+| Condition | Error Code |
+|----------------------------------------------------------------------------------------------------------------------------------|------------|
+| Request succeeded | `OK` |
+| Request cancelled, typically by the caller | `CANCELLED` |
+| Invalid request parameters | `INVALID_ARGUMENT` |
+| Operation not completed within the specified time limit | `DEADLINE_EXCEEDED` |
+| The requested entity does not exist | `NOT_FOUND` |
+| The entity being created already exists | `ALREADY_EXISTS` |
+| The caller does not have permission to perform the operation | `PERMISSION_DENIED` |
+| Failed to authenticate the caller | `UNAUTHENTICATED` |
+| Certain infrastructure resources are exhausted (quota, server capacity, etc.) | `RESOURCE_EXHAUSTED` |
+| The system is not in the state required for the operation | `FAILED_PRECONDITION` |
+| Operation aborted, usually due to concurrency issues (e.g., sequencer check failure, transaction abort, etc.) | `ABORTED` |
+| Transient error occurred | `UNAVAILABLE` |
+| The client has iterated too far and should stop | `OUT_OF_RANGE` |
+| The requested operation is not implemented | `UNIMPLEMENTED` |
+| A critical internal invariant has been violated (i.e., an error worthy of reporting or escalation) | `INTERNAL` |
+| Irrecoverable data loss or corruption occurred | `DATA_LOSS` |
+| Unable to determine a more specific error code | `UNKNOWN` |
+
+:::info
+Choosing between `FAILED_PRECONDITION`, `ABORTED`, and `UNAVAILABLE` is subtle, especially regarding the retry strategy that callers should adopt. Here are some guidelines that may help service implementers:
+- Use `UNAVAILABLE` if the client can retry just the failed call.
+- Use `ABORTED` if the client should retry at a higher transaction level (e.g., when a client-specified test-and-set fails, indicating that the client should restart a read-modify-write sequence).
+- Use `FAILED_PRECONDITION` if the client should not retry until the system state has been explicitly fixed. For example, if `rmdir` fails because the directory is non-empty, `FAILED_PRECONDITION` should be returned and the client should not retry unless files are removed from the directory.
+- Use `INVALID_ARGUMENT` (instead of `OUT_OF_RANGE`) if the input value is never accepted, regardless of the system state. Reserve `OUT_OF_RANGE` for inputs that are out of range only due to the current system state.
+:::
+

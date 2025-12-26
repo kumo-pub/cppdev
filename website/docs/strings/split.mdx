@@ -1,0 +1,162 @@
+# String Splitting
+
+## `turbo::str_split()` - Splitting Strings
+
+The `turbo::str_split()` function provides a simple way to split a string into substrings.
+`str_split()` accepts an input string to split, a delimiter (e.g., comma `,`) for splitting the string,
+and (optionally) a predicate that acts as a filter to determine whether split elements are included in the result set. `str_split()` also adapts the returned collection to the type specified by the caller.
+
+Examples:
+
+```cpp
+// Splits the given string on commas. Returns the results in a
+// vector of strings. (Data is copied once.)
+std::vector<std::string> v = turbo::str_split("a,b,c", ',');  // Can also use ","
+// v[0] == "a", v[1] == "b", v[2] == "c"
+
+// Splits the string as in the previous example, except that the results
+// are returned as `std::string_view` objects, avoiding copies. Note that
+// because we are storing the results within `std::string_view` objects, we
+// have to ensure that the input string outlives any results.
+std::vector<std::string_view> v = turbo::str_split("a,b,c", ',');
+// v[0] == "a", v[1] == "b", v[2] == "c"
+```
+
+`str_split()` splits the string using the passed *Delimiter* object. (See [Delimiters](#delimiters) below.) However, in many cases,
+you can simply pass a string literal as the delimiter (it will be implicitly converted to a `turbo::ByString` delimiter).
+
+Examples:
+
+```cpp
+// By default, empty strings are *included* in the output. See the
+// `turbo::SkipEmpty()` predicate below to omit them{#stringSplitting}.
+std::vector<std::string> v = turbo::str_split("a,b,,c", ',');
+// v[0] == "a", v[1] == "b", v[2] == "", v[3] = "c"
+
+// You can also split an empty string
+v = turbo::str_split("", ',');
+// v[0] = ""
+
+// The delimiter need not be a single character
+std::vector<std::string> v = turbo::str_split("aCOMMAbCOMMAc", "COMMA");
+// v[0] == "a", v[1] == "b", v[2] == "c"
+
+// You can also use the empty string as the delimiter, which will split
+// a string into its constituent characters.
+std::vector<std::string> v = turbo::str_split("abcd", "");
+// v[0] == "a", v[1] == "b", v[2] == "c", v[3] = "d"
+```
+
+### Adapting Return Types
+
+One of the more useful features of the `str_split()` API is its ability to adapt its result set to the desired return type. The collection returned by `str_split()`
+may contain `std::string`, `std::string_view`, or any object that can be explicitly created from `std::string_view`.
+This pattern works with all standard STL containers, including `std::vector`, `std::list`, `std::deque`, `std::set`, `std::multiset`,
+`std::map`, and `std::multimap`—even `std::pair`, which is not actually a container.
+
+Examples:
+
+```cpp
+// Stores results in a std::set<std::string>, which also performs de-duplication
+// and orders the elements in ascending order.
+std::set<std::string> s = turbo::str_split("b,a,c,a,b", ',');
+// s[0] == "a", s[1] == "b", s[2] == "c"
+
+// Stores results in a map. The map implementation assumes that the input
+// is provided as a series of key/value pairs. For example, the 0th element
+// resulting from the split will be stored as a key to the 1st element. If
+// an odd number of elements are resolved, the last element is paired with
+// a default-constructed value (e.g., empty string).
+std::map<std::string, std::string> m = turbo::str_split("a,b,c", ',');
+// m["a"] == "b", m["c"] == "" // last component value equals ""
+
+// Stores first two split strings as the members in a std::pair. Any split
+// strings beyond the first two are omitted because std::pair can hold only two
+// elements.
+std::pair<std::string, std::string> p = turbo::str_split("a,b,c", ',');
+// p.first = "a", p.second = "b" ; "c" is omitted
+```
+
+### Delimiters {#delimiters}
+
+The `str_split()` API provides a number of "delimiters" to provide special delimiter behaviors. A Delimiter implementation contains a `Find()` function
+that knows how to find the first occurrence of itself within a given `std::string_view`. Models of the Delimiter concept represent specific types of delimiters,
+such as single characters, substrings, or even regular expressions.
+
+The following delimiter abstractions are provided as part of the `str_split()` API:
+*   `turbo::ByString()` (default for `std::string` arguments)
+*   `turbo::ByChar()` (default for a `char` argument)
+*   `turbo::ByAnyChar()` (for mixing delimiters)
+*   `turbo::ByLength()` (for applying a delimiter a set number of times)
+*   `turbo::MaxSplits()` (for splitting a specific number of times)
+
+Examples:
+
+```cpp
+// Because a `string` literal is converted to an `turbo::ByString`, the following
+// two splits are equivalent.
+std::vector<std::string> v = turbo::str_split("a,b,c", ",");
+std::vector<std::string> v = turbo::str_split("a,b,c", turbo::ByString(","));
+// v[0] == "a", v[1] == "b", v[2] == "c"
+
+// Because a `char` literal is converted to an `turbo::ByChar`, the following two
+// splits are equivalent.
+std::vector<std::string> v = turbo::str_split("a,b,c", ',');
+// v[0] == "a", v[1] == "b", v[2] == "c"
+
+std::vector<std::string> v = turbo::str_split("a,b,c", turbo::ByChar(','));
+// v[0] == "a", v[1] == "b", v[2] == "c"
+
+// Splits on any of the given characters ("," or ";")
+vector<std::string> v = turbo::str_split("a,b;c", turbo::ByAnyChar(",;"));
+// v[0] == "a", v[1] == "b", v[2] == "c"
+
+// Uses the `turbo::MaxSplits` delimiter to limit the number of matches a
+// delimiter can have. In this case, the delimiter of a literal comma is limited
+// to matching at most one time. The last element in the returned collection
+// will contain all unsplit pieces, which may contain instances of the
+// delimiter.
+std::vector<std::string> v = turbo::str_split("a,b,c", turbo::MaxSplits(',', 1));
+// v[0] == "a", v[1] == "b,c"
+
+// Splits into equal-length substrings.
+std::vector<std::string> v = turbo::str_split("12345", turbo::ByLength(2));
+// v[0] == "12", v[1] == "34", v[2] == "5"
+```
+
+### Filtering Conditions (Predicates)
+
+A predicate can filter the results of a `str_split()` operation by determining whether a result element is included in the result set. A filtering predicate can be passed as an *optional* third argument to the `str_split()` function.
+
+The predicate must be a unary function (or function object, such as a [lambda](https://en.cppreference.com/w/cpp/language/lambda)) that takes a single `std::string_view` parameter and returns a bool indicating whether the parameter should be included (`true`) or excluded (`false`).
+
+One example where using a predicate is useful is filtering out empty substrings. By default, `str_split()` may return empty substrings as separate elements in the result set, which is similar to how split functions work in other programming languages.
+
+```cpp
+// Empty strings *are* included in the returned collection.
+std::vector<std::string> v = turbo::str_split(",a,,b,", ',');
+// v[0] == "", v[1] == "a", v[2] == "", v[3] = "b", v[4] = ""
+```
+
+These empty strings can be filtered out of the result set simply by passing the provided `SkipEmpty()` predicate as the third argument to the `str_split()` function. `SkipEmpty()` does **not** treat strings containing all whitespace as empty. For that behavior, use the `SkipWhitespace()` predicate.
+
+Examples:
+
+```cpp
+// Uses turbo::SkipEmpty() to omit empty strings. Strings containing whitespace
+// are not empty and are therefore not skipped.
+std::vector<std::string> v = turbo::str_split(",a, ,b,", ',', turbo::SkipEmpty());
+// v[0] == "a", v[1] == " ", v[2] == "b"
+
+// Uses turbo::SkipWhitespace() to skip all strings that are either empty or
+// contain only whitespace.
+std::vector<std::string> v = turbo::str_split(",a, ,b,", ',',
+                                            turbo::SkipWhitespace());
+// v[0] == "a", v[1] == "b"
+
+// Passes a lambda as the predicate to keep only the lines that don't start
+// with a `#`.
+std::vector<std::string> non_comment_lines = turbo::str_split(
+    file_content, '\n',
+    [](std::string_view line) { return !turbo::StartsWith(line, "#"); });
+```
