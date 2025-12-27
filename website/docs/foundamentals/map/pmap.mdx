@@ -1,0 +1,230 @@
+# Introduction to parallel-hashmap: High-Performance, Thread-Safe, Memory-Efficient Hash Tables and B-Trees
+
+## 1. Background
+In backend development, thread-safe, high-performance container data structures are a common requirement. The open-source library [parallel-hashmap](https://github.com/kumose/collie) is an enhancement of Google's abseil-cpp library, which can be directly used in development.
+
+## 2. Overview
+parallel-hashmap provides a set of high-quality hash map implementations, as well as btree implementations that can replace `std::map` and `std::set`. Its core features are as follows:
+- Header only: No linking required; simply include the header files in your code to use.
+- Seamlessly replaces `std::unordered_map`, `std::unordered_set`, `std::map`, and `std::set` with full compatibility with standard STL container APIs.
+- Requires a C++11-compliant compiler, while also providing C++14 and C++17 APIs (e.g., `try_emplace`).
+- Exceptional efficiency: Significantly faster than compiler-default unordered map/set, Boost implementations, and sparsepp. Benchmarks show insertion speed is 1x faster and lookup speed is 3x faster than `std::unordered_map` (Reference: https://martin.ankerl.com/2019/04/01/hashmap-benchmarks-01-overview/).
+- Memory-efficient: Low memory footprint, slightly higher than sparsepp; in 64-bit mode, `std::set<int32_t>` allocates 40 bytes per value, while `absl::btree_set<int32_t>` allocates only ~4.3 to ~5.1 bytes (Reference: Abseil data - https://abseil.io/about/design/btree).
+- Supports heterogeneous lookup.
+- Easy forward declaration: Include `phmap_fwd_decl.h` in the header file (Note: Not applicable for hash tables with pointers as keys).
+- Dump/load functionality: When flat hash tables store `std::trivially_copyable` data, they can be directly dumped to disk and efficiently restored without recalculating hashes. This is 10x faster than serializing elements one by one, with an additional 10% - 60% disk space overhead (Applicable only to flat hash map/set; see `examples/serialize.cc`).
+- Multi-platform tested: Windows (vs2015/2017/2019, Intel compiler 18/19), Linux (g++ 4.8.4/5/6/7/8, clang++ 3.9/4.0/5.0), MacOS (g++、clang++).
+- Automatically supports Boost's `hash_value()` method and provides hash function implementations for `std::pair` and `std::tuple`.
+- Supports Visual Studio natvis visualization (for hash map/set only).
+
+## 3. Fast and Memory-Efficient
+Google Abseil's flat_hash_map uses a 2x memory growth resize strategy, which causes memory peaks and requires 3x temporary memory for data migration.
+
+parallel-hashmap's optimization approach splits a large flat_hash_map into a number of sub-hash tables that is a power of 2 (e.g., 16), which not only reduces the memory peak (to 1/16 of the original) but also facilitates concurrency.
+
+The library's hash maps and btrees are based on Abseil's open-source implementation, adopting closed hashing where data is directly stored in memory arrays to avoid indirect memory access. Through concurrent SSE2 instructions, it can search 16 slots in parallel, maintaining high speed even with a load factor of 87.5%.
+
+> Important Note: This repository draws on and modifies code from abseil-cpp. Its behavior may differ from the original version, and no guarantees are provided for independent use. For the official Abseil library, visit abseil-cpp.
+
+## 4. Installation
+No installation required; simply include the header files in your code to use.
+
+## 5. Example
+```cpp
+#include <iostream>
+#include <string>
+#include <parallel_hashmap/phmap.h>
+
+using phmap::flat_hash_map;
+
+int main()
+{
+    // Create an unordered_map to store string mappings
+    flat_hash_map<std::string, std::string> email =
+    {
+        { "tom",  "tom@gmail.com"},
+        { "jeff", "jk@gmail.com"},
+        { "jim",  "jimg@microsoft.com"}
+    };
+
+    // Iterate and print key-value pairs
+    for (const auto& n : email)
+        std::cout << n.first << "'s email is: " << n.second << "\n";
+
+    // Add a new entry
+    email["bill"] = "bg@whatever.com";
+
+    // Print the new entry
+    std::cout << "bill's email is: " << email["bill"] << "\n";
+
+    return 0;
+}
+```
+
+## 6. Various Hash Tables Provided and Their Pros and Cons
+### 6.1 Hash Table Types (Header file: `parallel_hashmap/phmap.h`)
+A total of 8 hash table types are provided:
+- phmap::flat_hash_set
+- phmap::flat_hash_map
+- phmap::node_hash_set
+- phmap::node_hash_map
+- phmap::parallel_flat_hash_set
+- phmap::parallel_flat_hash_map
+- phmap::parallel_node_hash_set
+- phmap::parallel_node_hash_map
+
+### 6.2 B-Tree Ordered Containers (Header file: `parallel_hashmap/btree.h`)
+- phmap::btree_set
+- phmap::btree_map
+- phmap::btree_multiset
+- phmap::btree_multimap
+
+B-tree containers are directly ported from Abseil and perform essentially the same as Abseil. Minor differences include support for `std::string_view` instead of `absl::string_view`, and support for forward declaration.
+
+### 6.3 Key Design Points of Hash Containers
+- Flat series: Internally moves keys and values, so external pointers to elements may become dangling when the container is modified; offers lower memory usage and faster speed, so it is preferred. Exception: When the value size exceeds 100 bytes (high movement cost), use the node series instead.
+- Node series: Does not internally move keys and values, suitable for scenarios where external pointers need to be preserved.
+- Parallel series: Suitable for a small number of hash tables storing a large number of values; non-parallel series are suitable for a large number of hash tables storing a small number of elements.
+- Advantages of the parallel series:
+  a. Reduces memory peaks during resizing.
+  b. Supports multi-threading (internally split into multiple sub-hash tables for thread-safe concurrency).
+
+### 6.4 Key Design Points of B-Tree Containers
+- Ordered containers that can replace STL red-black tree containers (`std::map`/`std::set`).
+- Each tree node stores multiple values, which is cache-friendly and significantly reduces memory usage.
+- Preferred scenarios: No requirements for pointer/iterator stability, low value movement cost.
+- Not recommended scenarios:
+  a. Requirements for pointer or iterator stability.
+  b. Large value types with high movement cost.
+- When order is not required, hash table containers are superior to b-tree containers.
+
+## 7. Modifications to Abseil’s Hash Tables
+- Default hash: Changed from `absl::hash` to `std::hash`; can switch by defining the macro `PHMAP_USE_ABSL_HASH`.
+- Erase method: `erase(iterator)` and `erase(const_iterator)` return the iterator following the erased element (consistent with `std::unordered_map`), and a non-standard `void _erase(iterator)` is provided (for scenarios where no return value is needed).
+- String view support: Does not provide `absl::string_view`, but supports all types compatible with `std::hash<>` (also compatible with `std::string_view` when the compiler supports it).
+- Hash seed: Random initialization is disabled by default (facilitates debugging); can be enabled by defining the macro `#define PHMAP_NON_DETERMINISTIC 1` (Reference: raw_hash_set_test.cc) to prevent DoS attacks.
+- Hash value mixing: Internally implements hash value mixing to avoid performance degradation when the user's hash function has poor entropy distribution, with extremely low overhead.
+
+## 8. Memory Usage
+| type                | memory usage                          | additional peak memory usage when resizing |
+|---------------------|---------------------------------------|--------------------------------------------|
+| flat tables         | `sizeof(C::value_type) + 1`           | 0.5x the size of the old bucket array      |
+| node tables         | `sizeof(void *) + 1`                  | 0.5x the size of the old bucket array      |
+| parallel flat tables| `sizeof(C::value_type) + 1`           | Approximately 0.03 (0.5 / number of sub-hash tables) |
+| parallel node tables| `sizeof(void *) + 1`                  | Approximately 0.03 (0.5 / number of sub-hash tables) |
+
+### Supplementary Notes
+- size(): Returns the number of values in the container.
+- load_factor(): Load factor, i.e., `size() / bucket_count()`, which fluctuates between 0.4375 (immediately after resizing) and 0.875 (before resizing).
+- Bucket array size: Doubles with each resize.
+- Parallel hash tables: When the template parameter N=4, 16 sub-hash tables are created; only one sub-hash table is resized at a time in single-threaded mode.
+
+## 9. Iterator Invalidation for Hash Table Containers
+Follows the same rules as `std::unordered_map`:
+
+| Operations                              | Invalidated       |
+|-----------------------------------------|-------------------|
+| All read-only operations, swap, std::swap | Never invalidated |
+| clear, rehash, reserve, operator=       | Always invalidated |
+| insert, emplace, emplace_hint, operator[] | Invalidated only when rehash is triggered |
+| erase                                   | Only the erased element is invalidated |
+
+## 10. Iterator Invalidation for B-Tree Containers
+Unlike `std::map`/`std::set`, any modification operation may invalidate surviving iterators:
+
+| Operations                              | Invalidated       |
+|-----------------------------------------|-------------------|
+| All read-only operations, swap, std::swap | Never invalidated |
+| clear, operator=                        | Always invalidated |
+| insert, emplace, emplace_hint, operator[] | Invalidated       |
+| erase                                   | Invalidated       |
+
+## 11. Providing Hash Functions for User-Defined Classes
+When using flat_hash_set or flat_hash_map, user-defined classes need to provide hash functions. Two implementation methods are available:
+1. Provide a hash function via the HashFcn template parameter.
+2. When using Boost, add a `hash_value()` friend function to the user-defined class.
+
+For detailed examples, refer to the official documentation.
+
+## 12. Thread Safety
+### 12.1 Basic Thread Safety Rules (Follows C++ Standard Library)
+- Multi-threaded reading of a single hash table: Safe.
+- Single-threaded writing while other threads read/write the same hash table: Unsafe; requires protection.
+- Multi-threaded reading/writing of different instances of the same type: Safe.
+
+### 12.2 Thread Safety Extensions for Parallel Series Hash Tables
+Internal thread safety can be achieved by specifying a synchronization type (e.g., `std::shared_mutex`, `boost::shared_mutex`, `std::mutex`) as the last template parameter. High concurrency is achieved through locking per sub-hash table internally:
+- Read operations: Safely performed via `if_contains()`, which holds the sub-hash table lock and passes a reference to the value to the callback function.
+- Write operations: Safely performed via `modify_if()` or `try_emplace_l()`.
+- Note: Iterators or references returned by standard APIs are not protected by mutexes and are unreliable in multi-threaded modification scenarios.
+
+It is recommended to use C++17's `std::shared_mutex`, which has been tested to deliver the best performance. For more examples of using different mutex types, refer to `examples/bench.cc`.
+
+### 12.3 Thread-Safe Functions for Parallel Series Containers
+- insert()
+- emplace()
+- lazy_emplace()
+- erase()
+- merge()
+- swap()
+- rehash()
+- find()
+- bucket_count()
+- has_element()
+- if_contains()
+- modify_if()
+- try_emplace_l()
+
+### 12.4 Multi-Thread Example
+```cpp
+#include <assert.h>
+#include <stdint.h>
+
+#include <map>
+#include <shared_mutex>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+#include "parallel-hashmap/parallel_hashmap/phmap.h"
+
+// Replacement for std::unordered_map<uint64_t, uint32_t>
+typedef phmap::parallel_flat_hash_map<uint64_t, uint32_t, phmap::priv::hash_default_hash<uint64_t>,
+                                     phmap::priv::hash_default_eq<uint64_t>,
+                                     std::allocator<std::pair<const uint64_t, uint32_t>>, 4, std::shared_mutex>
+   MapT;
+
+int main() {
+   MapT index;
+   const static uint32_t key_num = 10000;
+   const static int thread_num = 10;
+   
+   for (uint64_t key = 0; key < key_num; ++key) {
+       index.try_emplace_l(
+           key, [](uint32_t& val) { val = 0; }, 0);
+   }
+   std::vector<std::thread> thread_list;
+   for (int i = 0; i < thread_num; ++i) {
+       thread_list.push_back(std::thread([&]() {
+           for (uint64_t key = 0; key < key_num * 10; ++key) {
+               index.modify_if(key, [](uint32_t& val) { ++val; });
+           }
+       }));
+   }
+   for (auto& t : thread_list) {
+       t.join();
+   }
+
+   uint32_t hit_num = 0;
+   for (uint64_t key = 0; key < key_num * 10; ++key) {
+       index.if_contains(key, [&](const uint32_t& val) {
+           assert(thread_num == val);
+           ++hit_num;
+       });
+   }
+
+   assert(hit_num == key_num);
+
+   return 0;
+}
+```

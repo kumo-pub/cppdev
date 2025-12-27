@@ -1,0 +1,71 @@
+# Thread Model Selection
+krpc provides [asynchronous interfaces](../../rpc/krpc/client.mdx#asynchronous-access), so a common question arises: Should I use asynchronous interfaces or kthread?
+
+**Short answer**: For low-latency scenarios, start with simple and easy-to-understand synchronous interfaces. If they don’t meet requirements, use asynchronous interfaces. Only use kthread when multi-core parallel computing is needed.
+
+## Synchronous or Asynchronous
+Asynchrony replaces blocking with callbacks—where there is blocking, there are callbacks. While callbacks work well and are widely accepted in languages like JavaScript, anyone who has used them in multi-threaded environments will find they are entirely different from what we need. This difference is not about [lambda](https://en.wikipedia.org/wiki/Anonymous_function) or [future](https://en.wikipedia.org/wiki/Futures_and_promises), but that JavaScript is **single-threaded**. JavaScript-style callbacks are unlikely to work in multi-threaded environments due to excessive race conditions—synchronous methods in single-threaded vs. multi-threaded contexts are fundamentally different.
+
+Could we design services in a similar fashion (multiple threads, each with an independent event loop)? Yes—**ub**a**server** (note the letter "a") is an example, but its real-world performance was poor. Converting blocking code to callback-based code is non-trivial: blocking within loops, conditional branches, or deep nested subfunctions is extremely hard to refactor. Furthermore, legacy code and third-party libraries are often impossible to modify. Inevitably, blocking code remains, causing delays to other callbacks in the same thread, leading to request timeouts and subpar server performance.
+
+If you claim, "I want to refactor existing synchronous code into a mass of callbacks that no one else can understand, with potentially worse performance," most developers would disagree. Don’t be misled by advocates of asynchrony—they write end-to-end, bottom-up fully asynchronous code that ignores multi-threading, which is entirely different from what you need to implement.
+
+Asynchrony in krpc is completely different from single-threaded asynchrony: asynchronous callbacks run in a different thread from the caller. You gain multi-core scalability but must account for multi-threading issues. You can block within callbacks—provided sufficient threads are available, there will be no significant impact on overall server performance. However, asynchronous code remains difficult to write. To simplify this, we provide [Combo Access](../../rpc/krpc/combo_channel.mdx): by composing different channels, you can declaratively execute complex access patterns without worrying about low-level details.
+
+Of course, for scenarios with low latency and low QPS, we strongly recommend synchronous interfaces. This was a key motivation for creating kthread: to improve interaction performance while retaining the simplicity of synchronous code.
+
+### How to Choose Between Synchronous and Asynchronous
+Calculate `QPS * latency (in seconds)`. If the result is on the same order of magnitude as the number of CPU cores, use synchronous; otherwise, use asynchronous.
+
+Examples:
+- QPS = 2000, Latency = 10ms → 2000 * 0.01s = 20. This matches the order of a typical 32-core CPU → use synchronous.
+- QPS = 100, Latency = 5s → 100 * 5s = 500. This is far larger than the number of CPU cores → use asynchronous.
+- QPS = 500, Latency = 100ms → 500 * 0.1s = 50. Roughly on the same order as CPU cores → synchronous is acceptable. Consider asynchronous if latency increases in the future.
+
+This formula calculates the **average number of concurrent requests** (you can verify this yourself), which is comparable to the number of threads/CPU cores. When this value is much larger than the number of CPU cores, most operations do not consume CPU but block a large number of threads—using asynchrony significantly saves thread resources (memory occupied by stacks). When the value is smaller than or similar to the number of CPU cores, the thread resources saved by asynchrony are negligible, and simple, readable synchronous code becomes more important.
+
+## Asynchronous or kthread
+With kthread, users can even implement asynchrony themselves. Take "semi-synchronous" as an example—krpc offers multiple options:
+1. Initiate multiple asynchronous RPCs and call `Join` on each (blocks until the RPC completes).  
+   (For comparison with kthread only—we recommend using [ParallelChannel](../../rpc/krpc/combo_channel.mdx#ParallelChannel) in practice instead of manual `Join`.)
+2. Start multiple kthreads to execute synchronous RPCs individually, then join the kthreads one by one.
+
+Which is more efficient? Clearly the former. The latter incurs the cost of kthread creation, and kthreads remain blocked during RPC execution (unavailable for other tasks).
+
+**Do NOT use kthread if you only need concurrent RPC calls.**
+
+However, the situation changes when parallel computing is required. kthread enables simple construction of tree-structured parallel computation to fully utilize multi-core resources. For example, if a retrieval process has three parallelizable stages: create two kthreads to run two stages, run the third stage in the current thread, then join the two kthreads. A rough implementation is as follows:
+```c++
+bool search() {
+  // ... (initialization logic)
+  kthread th1, th2;
+  if (kthread_start_background(&th1, NULL, part1, part1_args) != 0) {
+    LOG(ERROR) << "Fail to create kthread for part1";
+    return false;
+  }
+  if (kthread_start_background(&th2, NULL, part2, part2_args) != 0) {
+    LOG(ERROR) << "Fail to create kthread for part2";
+    return false;
+  }
+  part3(part3_args); // Run in current thread
+  kthread_join(th1);
+  kthread_join(th2);
+  return true;
+}
+```
+
+Key points about this implementation:
+- You could create three kthreads (one for each stage) and join them all, but this consumes one additional thread resource compared to the above approach.
+- There is a scheduling delay from kthread creation to execution. On lightly loaded machines:
+  - Median delay: ~3 microseconds
+  - 90th percentile: within 10 microseconds
+  - 99.99th percentile: within 30 microseconds  
+
+  This implies two things:
+  1. The benefit of kthread is significant only when computation time exceeds 1ms. For trivial computations (completing in a few microseconds), kthread is meaningless.
+  2. Try to run the slowest stage in the current thread. Even if the kthread stages are delayed by a few microseconds, they will likely finish first—eliminating the impact of scheduling delay. Additionally, joining an already completed kthread returns immediately with no context switch overhead.
+
+kthread can also replace thread pools for executing a class of jobs. If job execution order is required, use [ExecutionQueue](execution_queue.mdx) (built on kthread).
+
+## When to Use Taskflow
+Taskflow is designed for **continuous high-density computation** and **complex task dependencies**. The underlying implementation of `Taskflow` runs on...

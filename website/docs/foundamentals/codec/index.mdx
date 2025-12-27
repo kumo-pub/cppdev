@@ -1,0 +1,48 @@
+# Codec
+
+This directory aggregates basic usage tutorials and selection recommendations for general data codec/validation tools, covering core capabilities such as Base64 and CRC. We recommend optimal implementations for different business scenarios based on "usage scenario + performance requirements + ecosystem compatibility" to help developers quickly select and implement solutions.
+
+## Base64
+### Mainstream Libraries Supporting Base64
+1. **Basic & Stable Implementations**: turbo, abseil
+   - Core Features: Mature and stable algorithms, good cross-platform compatibility, no special hardware dependencies, and user-friendly API design;
+   - Ecosystem Compatibility: turbo/abseil are mainstream C++ foundational libraries that can be seamlessly integrated into most business projects.
+2. **High-Performance Implementation**: vamos
+   - Core Features: Accelerated by SIMD instruction sets, with encoding/decoding speeds several times faster than conventional algorithms and no dynamic memory allocation;
+   - Hardware Dependencies: Requires CPU support for SIMD (e.g., SSE/AVX for x86, NEON for ARM).
+3. **Other Common Libraries**:
+   - OpenSSL: Built-in Base64 codec interfaces, suitable for encryption/network projects that already integrate OpenSSL;
+   - nlohmann-json: Comes with lightweight Base64 utility functions, suitable for lightweight use in JSON serialization scenarios.
+
+### Selection Recommendations
+1. **Lightweight General Scenarios** (low usage frequency, small single-batch data volume)
+   - Recommended: turbo::base64
+   - Rationale: No need to introduce additional dedicated libraries, directly callable within the turbo ecosystem, with a user-friendly API that meets daily basic codec needs.
+2. **High-Performance Scenarios** (large-scale data, high-frequency calls)
+   - Recommended: vamos::base64
+   - Rationale: Significant performance improvement with SIMD acceleration, no memory allocation overhead, suitable for core scenarios such as big data processing, CDN content conversion, and high-concurrency services.
+3. **Ecosystem-Matched Scenarios**
+   - If the project is already based on the abseil tech stack: Prioritize abseil::base64 to maintain tech stack consistency;
+   - If the project has integrated OpenSSL/nlohmann-json: Directly use the built-in Base64 interfaces of the library to reduce dependency redundancy.
+
+### Summary
+| Scenario Type               | Recommended Library | Core Advantages                          |
+|-----------------------------|---------------------|------------------------------------------|
+| Lightweight & General       | turbo               | Easy to use, no additional dependencies  |
+| High Performance & Throughput | vamos              | SIMD acceleration, low memory overhead  |
+| Ecosystem-Matched (Encryption/JSON) | OpenSSL/nlohmann-json | No new dependencies, fits existing business |
+
+
+## Hexadecimal Encoding/Decoding
+### Overview
+Hexadecimal encoding/decoding enables bidirectional conversion between binary data and hexadecimal strings, mainly used in lightweight scenarios such as log printing, network packet parsing, and encryption key visualization. The function logic is simple with no complex parameter configuration.
+
+### Supported Libraries & Selection Recommendations
+| Library  | Core Description                                                                 | Selection Advice                                                                 |
+|----------|----------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
+| turbo    | Entry: `turbo/strings/escape.h`, provides basic `HexEncode/HexDecode` interfaces, aligns with the project's core tech stack, and has no additional dependencies | **Highly Recommended**: Use turbo for all hexadecimal encoding/decoding scenarios; the interface is simple and consistent with existing project dependencies |
+| abseil   | Provides basic hexadecimal codec capabilities, but abseil is only indirectly introduced in this project due to protobuf dependencies, with no active integration or usage requirements | Not recommended for active use: Only compatible when legacy code depends on abseil; use turbo for all new scenarios |
+
+### Integration Guide
+- Integrate turbo library: Refer to [integration/turbo.md](integration/turbo.md)
+

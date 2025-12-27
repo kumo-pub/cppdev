@@ -1,0 +1,68 @@
+# Monitoring
+This section describes monitoring and its implementation via `tally`. The following chapters will elaborate on the monitoring metrics, statistical implementation, metric collection, and other details of `tally`.
+
+## What is `tally`
+[tally](https://gitee.com/kumo-pub/tally/) is a monitoring metrics collection library designed for multi-threaded environments. It supports Prometheus metrics collection and aggregation, and integrates monitoring and counting capabilities for system metrics statistics.
+
+## Metric Model
+Metrics are used to measure the changing trends of performance, resource consumption, efficiency, and many other software attributes over time. They enable engineers to monitor the evolution of a series of measurements (such as CPU or memory usage, request duration, latency, etc.) through alerts and dashboards. Metrics have a long history in the IT monitoring field and are widely used by engineers, together with logs and distributed tracing, to detect unexpected system behaviors.
+
+In its most basic form, a metric data point consists of three components:
+- A metric name
+- A timestamp when the data point is collected
+- A numerical measurement value
+
+### Counter
+Counter-type metrics are used for monotonically increasing measurements. Therefore, their values are always cumulative and can only go up. The only exception is when a counter is reset (e.g., after a system restart), in which case its value is set back to zero.
+
+The absolute value of a counter is usually not very useful on its own. Counter values are often used to calculate the delta between two timestamps or the rate of change over time.
+
+- Counter type with monotonically increasing values (non-decreasing)
+- Suitable for measuring uptime, request volume, etc.
+- Resistant to system restarts (values are not reset to zero upon reboot in most implementations)
+
+### Gauge
+Gauge metrics are used for measurements that can increase or decrease arbitrarily. This is a more familiar metric type for many engineers, as their raw values are meaningful without additional processing. Examples include metrics for temperature, CPU and memory usage, or queue size.
+
+- Gauge type that reflects real-time changes of metrics
+- Supports both increase and decrease; applicable to CPU/memory usage
+- Most monitoring data types fall into the Gauge category
+
+### Histogram
+Histogram metrics are useful for representing the distribution of measurements. They are often used to measure request duration, response size, and similar metrics.
+
+A histogram divides the entire range of measurements into a set of intervals called buckets, and counts how many measurements fall into each bucket.
+
+## Metric Definition
+`<metric name>{<label name>=<label value>, ...}`
+
+### Metric Name
+Describes the meaning of the metric.
+Metric names must consist of letters, numbers, underscores, or colons, complying with the regular expression `[a-zA-Z:][a-zA-Z0-9:]`.
+Colons are not allowed for use in exporters.
+
+### Label
+Reflects the dimensional characteristics of metrics and is used for filtering and aggregation.
+Labels consist of key-value pairs to form multiple dimensions of metrics.
+
+## Metric Formatting
+`tally` has built-in support for the Prometheus format and also allows custom output formats.
+
+Below is an example of metrics exposed in the Prometheus exposition format:
+```text
+# HELP http_requests_total Total number of http api requests
+# TYPE http_requests_total counter
+http_requests_total{api="add_product"} 4633433
+```
+`# HELP` provides a description for the metric, and `# TYPE` specifies the metric type. `4633433` is the specific metric value, and `api="add_product"` is a label key-value pair.
+
+## Implementation
+It leverages **thread-local storage** to reduce cache bouncing. Compared to `std::mutex`, it adds almost no performance overhead to the program, and is also faster than frequently contended atomic operations.
+
+The `tally` variable is designed for **scenarios with high write-to-read ratios**. It should not be used in scenarios where read operations are relatively frequent.
+
+## Integrating `tally`
+```shell
+kmpkg install tally
+```
+Alternatively, refer to the documentation of `kmpkg` to integrate `tally` in the `kmpkg.json` file of your project.

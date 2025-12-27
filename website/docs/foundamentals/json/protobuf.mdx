@@ -1,0 +1,426 @@
+# Protobuf-JSON conversion
+
+Based on the `json_to_pb.h` and `pb_to_json.h` headers, this document details the bidirectional conversion functionality between Protobuf (PB) and JSON in Merak, including usage methods, advanced configurations, and precautions—maintaining the same structure and style as Merak's official documentation.
+
+[TOC]
+
+## Overview
+`json_to_pb.h` and `pb_to_json.h` provide efficient conversion capabilities between Protobuf messages and Merak JSON DOM (`Document`/`Value`) or JSON strings. They support core Protobuf features (nested messages, repeated fields, enums, oneofs, map fields, etc.) and are compatible with Merak's high-performance design philosophy.
+
+### Core Features
+- **Full Type Mapping**: Accurate mapping between all Protobuf basic types (`int32`/`int64`/`uint32`/`uint64`/`double`/`float`/`bool`/`string`/`bytes`) and JSON types.
+- **Protobuf Feature Support**: Seamlessly handles nested messages, repeated fields (`repeated`), enums, oneofs, map fields (`map<>`), required fields, and optional fields.
+- **Flexible Configuration**: Offers conversion options (e.g., ignore unknown fields, control default value output, enum conversion modes).
+- **Error Handling**: Returns clear conversion status and supports detailed error information (e.g., field mismatch, type error, missing required fields).
+- **High Performance**: Reuses Merak DOM's memory-optimized design for low-overhead conversion, suitable for large-scale data scenarios.
+
+### Dependencies
+- Depends on Merak core libraries (`document.h`/`value.h`/`stringbuffer.h`, etc.).
+- Depends on Protobuf library (version 3.0+ recommended); requires linking against Protobuf compiled artifacts (`libprotobuf`).
+
+## 1. JSON to Protobuf (`json_to_pb.h`)
+`json_to_pb.h` provides interfaces to convert from Merak JSON DOM or JSON strings to Protobuf messages, core functionality being mapping JSON structures and values to corresponding fields in Protobuf messages.
+
+### 1.1 Basic Usage
+#### Step 1: Define Protobuf Message
+First, write a `.proto` file (example: `user.proto`) to define the target Protobuf message structure:
+```proto
+syntax = "proto3";
+
+package example;
+
+// Nested message: Address information
+message Address {
+  string street = 1;    // Street
+  string city = 2;      // City
+  uint32 zip_code = 3;  // Zip code (optional)
+}
+
+// Enum: User status
+enum UserStatus {
+  STATUS_UNKNOWN = 0;  // Default enum value
+  STATUS_ACTIVE = 1;   // Active
+  STATUS_INACTIVE = 2; // Inactive
+}
+
+// Core message: User information
+message User {
+  string id = 1;                  // User ID (required)
+  string name = 2;                // User name (required)
+  uint32 age = 3;                 // Age (optional)
+  bool is_vip = 4;                // Whether VIP (default: false)
+  repeated string tags = 5;        // Tags (repeated field)
+  repeated Address addresses = 6;  // Address list (nested repeated message)
+  UserStatus status = 7;           // User status (enum)
+  map<string, string> ext_info = 8;// Extended information (map field)
+
+  // Oneof field: Contact method (mutually exclusive)
+  oneof contact {
+    string phone = 9;  // Phone number
+    string email = 10; // Email address
+  }
+}
+```
+
+Compile the `.proto` file to generate C++ headers and source files (requires Protobuf compiler `protoc`):
+```bash
+protoc --cpp_out=./ user.proto
+```
+This generates `user.pb.h` and `user.pb.cc`—include these in your project and link against the compiled artifacts.
+
+#### Step 2: Convert JSON to Protobuf Message
+Use the `JsonToPb` series of interfaces for conversion, supporting input from either JSON strings or Merak DOM:
+```cpp
+#include "merak/proto/json_to_pb.h"
+#include "merak/json/document.h"
+#include "user.pb.h"  // Compiled Protobuf header
+#include <iostream>
+
+using namespace merak::json;
+using namespace example;
+
+int main() {
+  // 1. JSON string to convert
+  const char* json_str = R"(
+  {
+    "id": "user_123",
+    "name": "Alice",
+    "age": 28,
+    "is_vip": true,
+    "tags": ["student", "tech"],
+    "addresses": [
+      {
+        "street": "123 Main St",
+        "city": "New York",
+        "zip_code": 10001
+      }
+    ],
+    "status": "STATUS_ACTIVE",
+    "ext_info": {
+      "school": "NYU",
+      "major": "CS"
+    },
+    "email": "alice@example.com"
+  }
+  )";
+
+  // 2. Parse JSON string to Merak DOM (optional; direct string conversion is simpler)
+  Document json_doc;
+  if (json_doc.Parse(json_str).HasParseError()) {
+    std::cerr << "JSON parse error: " << GetParseError_En(json_doc.GetParseErrorCode()) << std::endl;
+    return 1;
+  }
+
+  // 3. Initialize Protobuf message
+  User user_pb;
+
+  // 4. Configure conversion options (omit for default)
+  merak::proto::JsonToPbOptions options;
+  options.ignore_unknown_fields = true;  // Ignore fields in JSON not defined in Protobuf
+  options.strict_required_fields = true; // Strictly check required fields (default: true)
+  options.enum_parse_mode = merak::proto::EnumParseMode::kEnumParseName; // Parse enums by name (default)
+
+  // 5. Perform conversion (two input modes: DOM or JSON string)
+  // Mode 1: Convert from Merak DOM
+  bool success = merak::proto::JsonToPb(json_doc, &user_pb, options);
+  // Mode 2: Convert directly from JSON string (internal DOM parsing)
+  // bool success = merak::proto::JsonToPb(json_str, &user_pb, options);
+
+  if (!success) {
+    std::cerr << "JSON to Protobuf failed: " << merak::proto::GetJsonToPbError() << std::endl;
+    return 1;
+  }
+
+  // 6. Verify conversion result
+  std::cout << "Conversion successful. User ID: " << user_pb.id() << std::endl;
+  std::cout << "User status: " << user_pb.status() << std::endl;
+  std::cout << "Email: " << user_pb.email() << std::endl;
+
+  return 0;
+}
+```
+
+### 1.2 Core Configuration: `JsonToPbOptions`
+The configuration struct controls JSON-to-PB behavior. Field descriptions:
+
+| Field Name              | Type                                  | Default Value | Description                                                                 |
+|-------------------------|---------------------------------------|---------------|-----------------------------------------------------------------------------|
+| `ignore_unknown_fields` | `bool`                                | `false`       | Whether to ignore fields in JSON not defined in Protobuf (true: ignore; false: fail conversion) |
+| `strict_required_fields`| `bool`                                | `true`        | Whether to strictly check Protobuf `required` fields (true: fail if missing; false: allow missing) |
+| `enum_parse_mode`       | `EnumParseMode` (enum)                | `kEnumParseName` | Enum parsing mode:<br/>- `kEnumParseName`: Parse by enum name (e.g., "STATUS_ACTIVE")<br/>- `kEnumParseNumber`: Parse by enum number (e.g., 1) |
+| `allow_hex_numbers`     | `bool`                                | `false`       | Whether to allow hexadecimal numbers in JSON (true: support `0x123`; false: decimal only) |
+| `bytes_parse_mode`      | `BytesParseMode` (enum)               | `kBytesParseBase64` | Parsing mode for Protobuf `bytes` fields:<br/>- `kBytesParseBase64`: Decode JSON string as Base64<br/>- `kBytesParseRaw`: Treat JSON string as raw bytes |
+
+### 1.3 Field Mapping Rules
+Type mapping between JSON and Protobuf follows the official Protobuf JSON specification. Core mappings:
+
+| Protobuf Field Type      | JSON Type       | Description                                                                 |
+|--------------------------|-----------------|-----------------------------------------------------------------------------|
+| `int32`/`int64`/`uint32`/`uint64` | Number or String | Supports JSON numbers (e.g., 123) or strings (e.g., "123"); conversion fails if out of range |
+| `double`/`float`         | Number or String | Supports JSON numbers (e.g., 3.14) or strings (e.g., "3.14"); NaN/Inf not supported |
+| `bool`                   | Boolean or String | Supports JSON `true`/`false`, or strings "true"/"false" (case-insensitive) |
+| `string`                 | String          | Supports JSON strings with null characters (`\u0000`) (compliant with Merak features) |
+| `bytes`                  | String          | Defaults to Base64-encoded string; configurable to raw bytes via `bytes_parse_mode` |
+| `enum`                   | String or Number | Maps to enum name (e.g., "STATUS_ACTIVE") or number (e.g., 1), depending on `enum_parse_mode` |
+| `repeated T`             | Array           | Each element in the JSON array follows the mapping rule for type T |
+| Nested `message`         | Object          | Fields in the JSON object map one-to-one with fields in the nested message |
+| `map<K, V>`              | Object          | Keys are of type K (supports `string`/`int32`/`int64`/`uint32`/`uint64`); values are of type V |
+| `oneof`                  | Single Field    | Only one field from the oneof is allowed in JSON; conversion fails if multiple or none are present |
+
+### 1.4 Error Handling
+For conversion failures, retrieve detailed error information via:
+- `const char* GetJsonToPbError()`: Returns human-readable error description (e.g., "required field 'id' not found").
+- `int GetJsonToPbErrorCode()`: Returns error code (corresponds to `JsonToPbErrorCode` enum, e.g., `kJsonToPbErrorMissingRequiredField`).
+
+Common Error Types:
+- Missing required Protobuf fields.
+- Mismatched field types (e.g., JSON string assigned to PB `int32` field).
+- Invalid enum values (e.g., unknown enum name or number).
+- Oneof field conflict (multiple oneof fields present in JSON).
+- Inconsistent types in JSON array (e.g., `repeated int32` mapped to JSON array with strings).
+
+## 2. Protobuf to JSON (`pb_to_json.h`)
+`pb_to_json.h` provides interfaces to convert from Protobuf messages to Merak JSON DOM or JSON strings, supporting advanced features like output format control and default value handling.
+
+### 2.1 Basic Usage
+Using the Protobuf message defined in Section 1.1, convert the PB message to JSON:
+```cpp
+#include "merak/proto/pb_to_json.h"
+#include "merak/json/document.h"
+#include "merak/json/stringbuffer.h"
+#include "merak/json/writer.h"
+#include "user.pb.h"
+#include <iostream>
+
+using namespace merak::json;
+using namespace example;
+
+int main() {
+  // 1. Construct Protobuf message
+  User user_pb;
+  user_pb.set_id("user_456");
+  user_pb.set_name("Bob");
+  user_pb.set_age(30);
+  user_pb.set_is_vip(false);
+  user_pb.add_tags("engineer");
+  user_pb.add_tags("golang");
+
+  // Add nested address message
+  Address* addr = user_pb.add_addresses();
+  addr->set_street("456 Oak Ave");
+  addr->set_city("London");
+  addr->set_zip_code(EC1V 9LB);
+
+  user_pb.set_status(UserStatus::STATUS_ACTIVE);
+  user_pb.mutable_ext_info()->insert({"company", "ABC Corp"});
+  user_pb.set_phone("+44 1234567890"); // Set oneof field
+
+  // 2. Configure conversion options
+  merak::proto::PbToJsonOptions options;
+  options.output_default_values = false;  // Do not output default-valued fields (default: false)
+  options.enum_output_mode = merak::proto::EnumOutputMode::kEnumOutputName; // Output enum names (default)
+  options.use_proto_field_name = false;   // Use JSON field names (default: false; uses proto-defined names)
+  options.pretty_print = true;           // Format JSON output (default: false)
+  options.bytes_output_mode = merak::proto::BytesOutputMode::kBytesOutputBase64; // Output bytes as Base64 (default)
+
+  // 3. Perform conversion (two output modes: Merak DOM or JSON string)
+  // Mode 1: Convert to Merak DOM (modifiable)
+  Document json_doc;
+  bool success = merak::proto::PbToJson(user_pb, &json_doc, options);
+  if (!success) {
+    std::cerr << "Protobuf to JSON failed: " << merak::proto::GetPbToJsonError() << std::endl;
+    return 1;
+  }
+
+  // Mode 2: Convert directly to JSON string (simpler)
+  // std::string json_str;
+  // bool success = merak::proto::PbToJson(user_pb, &json_str, options);
+
+  // 4. Output JSON result (formatted)
+  StringBuffer buffer;
+  PrettyWriter<StringBuffer> writer(buffer); // Formatted writer
+  json_doc.Accept(writer);
+
+  std::cout << "Protobuf to JSON result:" << std::endl;
+  std::cout << buffer.GetString() << std::endl;
+
+  return 0;
+}
+```
+
+Output (formatted):
+```json
+{
+    "id": "user_456",
+    "name": "Bob",
+    "age": 30,
+    "is_vip": false,
+    "tags": ["engineer", "golang"],
+    "addresses": [
+        {
+            "street": "456 Oak Ave",
+            "city": "London",
+            "zip_code": 234567890
+        }
+    ],
+    "status": "STATUS_ACTIVE",
+    "ext_info": {
+        "company": "ABC Corp"
+    },
+    "phone": "+44 1234567890"
+}
+```
+
+### 2.2 Core Configuration: `PbToJsonOptions`
+Controls PB-to-JSON output behavior. Field descriptions:
+
+| Field Name              | Type                                  | Default Value | Description                                                                 |
+|-------------------------|---------------------------------------|---------------|-----------------------------------------------------------------------------|
+| `output_default_values` | `bool`                                | `false`       | Whether to output Protobuf default values (true: output; false: omit default-valued fields) |
+| `enum_output_mode`      | `EnumOutputMode` (enum)               | `kEnumOutputName` | Enum output mode:<br/>- `kEnumOutputName`: Output enum names (e.g., "STATUS_ACTIVE")<br/>- `kEnumOutputNumber`: Output enum numbers (e.g., 1) |
+| `use_proto_field_name`  | `bool`                                | `false`       | Whether to use Protobuf-defined field names (true: use proto names; false: use JSON-spec names, e.g., proto `user_name` → JSON `userName`) |
+| `pretty_print`          | `bool`                                | `false`       | Whether to format JSON with indentation and line breaks (true: formatted; false: compact) |
+| `bytes_output_mode`     | `BytesOutputMode` (enum)              | `kBytesOutputBase64` | Output mode for Protobuf `bytes` fields:<br/>- `kBytesOutputBase64`: Output as Base64 string<br/>- `kBytesOutputRaw`: Output as raw byte string (may contain non-printable characters) |
+| `ignore_empty_repeated`  | `bool`                                | `false`       | Whether to omit empty `repeated` fields (true: omit empty arrays; false: output empty arrays) |
+| `ignore_empty_map`      | `bool`                                | `false`       | Whether to omit empty `map` fields (true: omit empty objects; false: output empty objects) |
+| `max_depth`             | `int`                                 | `100`         | Maximum nesting depth for nested messages (prevents recursion overflow; conversion fails if exceeded) |
+
+### 2.3 Field Mapping Rules
+Mapping from Protobuf to JSON follows symmetric rules to JSON-to-PB. Key supplementary notes:
+- **Default Value Handling**: Default-valued fields (e.g., `int32` = 0, `bool` = false, `string` = "") are omitted by default; enable via `output_default_values`.
+- **Repeated Fields**: Protobuf `repeated` fields always map to JSON arrays (empty arrays are omitted or retained per `ignore_empty_repeated`).
+- **Oneof Fields**: Only the set field in the oneof is output (omitted if no field is set).
+- **Map Fields**: Protobuf `map<K, V>` maps to JSON objects, with keys as string representations of K (e.g., `int32` key 123 → "123").
+- **Enum Fields**: Enum names are output by default (e.g., "STATUS_ACTIVE"); switch to numbers via `enum_output_mode`.
+
+### 2.4 Error Handling
+For conversion failures, retrieve error information via:
+- `const char* GetPbToJsonError()`: Returns error description (e.g., "nested message depth exceeds max_depth").
+- `int GetPbToJsonErrorCode()`: Returns error code (corresponds to `PbToJsonErrorCode` enum, e.g., `kPbToJsonErrorMaxDepthExceeded`).
+
+Common Error Types:
+- Nested message depth exceeds `max_depth` limit.
+- Protobuf message contains uninitialized required fields (checked only in debug mode).
+- `bytes` field contains invalid Base64 characters (when `bytes_output_mode` = `kBytesOutputBase64`).
+
+## 3. Advanced Features
+### 3.1 Handling Dynamic Protobuf Messages
+Supports dynamic messages via Protobuf's `Descriptor` and `Reflection` interfaces (no compiled `.proto` code required):
+```cpp
+#include "merak/proto/json_to_pb.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/message.h"
+
+// Dynamic JSON-to-Protobuf conversion (Descriptor known)
+bool DynamicJsonToPb(const Document& json, const google::protobuf::Descriptor* desc, google::protobuf::Message* pb) {
+  return merak::proto::JsonToPb(json, desc, pb, merak::proto::JsonToPbOptions());
+}
+```
+
+### 3.2 Custom Field Mapping
+Register callback functions to customize conversion logic for specific fields (e.g., special date formats, custom enum mappings):
+```cpp
+// Register field conversion callback (example: convert JSON date string to Protobuf int64 timestamp)
+merak::proto::RegisterJsonToPbFieldCallback(
+  "example.User",  // Full message type name
+  "create_time",  // Field name
+  [](const Value& json_val, google::protobuf::Message* pb, const google::protobuf::FieldDescriptor* field) -> bool {
+    if (!json_val.IsString()) return false;
+    // Custom logic: convert "2024-01-01" to timestamp
+    int64_t timestamp = ParseDateToTimestamp(json_val.GetString());
+    pb->GetReflection()->SetInt64(pb, field, timestamp);
+    return true;
+  }
+);
+```
+
+### 3.3 Performance Optimization Tips
+- **Reuse DOM Objects**: For frequent conversions, reuse Merak `Document` objects (clear via `SetObject()`/`SetArray()`) to reduce memory allocation overhead.
+- **Bulk Conversion**: For large numbers of small messages, batch conversions and reuse `StringBuffer` to avoid repeated buffer creation.
+- **Disable Unnecessary Checks**: In production environments, set `ignore_unknown_fields = true` to reduce field validation overhead.
+- **Use Compact JSON**: Disable `pretty_print` for non-human-readable scenarios to reduce string concatenation overhead.
+
+## 4. API Reference
+### 4.1 Core APIs in `json_to_pb.h`
+#### 1. Convert JSON String to Protobuf Message
+```cpp
+bool JsonToPb(
+  const char* json_str,                  // Input: JSON string
+  google::protobuf::Message* pb_msg,     // Output: Protobuf message (pre-initialized)
+  const JsonToPbOptions& options = JsonToPbOptions()  // Conversion options
+);
+```
+
+#### 2. Convert Merak DOM to Protobuf Message
+```cpp
+bool JsonToPb(
+  const Value& json_val,                 // Input: Merak JSON Value (Object type)
+  google::protobuf::Message* pb_msg,     // Output: Protobuf message
+  const JsonToPbOptions& options = JsonToPbOptions()  // Conversion options
+);
+```
+
+#### 3. Dynamic Message Conversion (via Descriptor)
+```cpp
+bool JsonToPb(
+  const Value& json_val,
+  const google::protobuf::Descriptor* pb_desc,  // Protobuf message descriptor
+  google::protobuf::Message* pb_msg,
+  const JsonToPbOptions& options = JsonToPbOptions()
+);
+```
+
+#### 4. Error Information Interfaces
+```cpp
+const char* GetJsonToPbError();          // Get description of last conversion error
+int GetJsonToPbErrorCode();              // Get error code of last conversion (JsonToPbErrorCode)
+```
+
+### 4.2 Core APIs in `pb_to_json.h`
+#### 1. Convert Protobuf Message to JSON String
+```cpp
+bool PbToJson(
+  const google::protobuf::Message& pb_msg,  // Input: Protobuf message
+  std::string* json_str,                    // Output: JSON string
+  const PbToJsonOptions& options = PbToJsonOptions()  // Conversion options
+);
+```
+
+#### 2. Convert Protobuf Message to Merak DOM
+```cpp
+bool PbToJson(
+  const google::protobuf::Message& pb_msg,  // Input: Protobuf message
+  Value* json_val,                          // Output: Merak JSON Value (Object type)
+  const PbToJsonOptions& options = PbToJsonOptions()  // Conversion options
+);
+```
+
+#### 3. Error Information Interfaces
+```cpp
+const char* GetPbToJsonError();          // Get description of last conversion error
+int GetPbToJsonErrorCode();              // Get error code of last conversion (PbToJsonErrorCode)
+```
+
+## 5. Precautions
+1. **Protobuf Version Compatibility**: Only supports Protobuf 3.0+. Behavior of `required`/`optional` keywords in Protobuf 2.x may not match expectations.
+2. **JSON Field Name Matching**: By default, Protobuf field name `user_name` maps to JSON `userName` (camelCase). Force raw field names with `use_proto_field_name = true`.
+3. **Enum Compatibility**: The default enum value (number 0) must exist (e.g., `STATUS_UNKNOWN = 0`), otherwise conversion may fail.
+4. **Large Data Handling**: For extra-large Protobuf messages (e.g., 100MB+), use Merak's `FileReadStream`/`FileWriteStream` for chunked processing to avoid memory overflow.
+5. **Thread Safety**: Conversion interfaces are not thread-safe. Use separate calls per thread or add lock protection in multi-threaded environments.
+6. **Default Value Behavior**: All fields in Protobuf 3 are optional by default. Default-valued fields (e.g., 0, false, empty string) are not included in JSON when `output_default_values = false`.
+
+## 6. Frequently Asked Questions (FAQs)
+### Q1: What happens if a required Protobuf field is missing in JSON?
+A1: By default (`strict_required_fields = true`), conversion fails with error "required field 'xxx' not found". Set `strict_required_fields = false` to allow missing fields (field uses default value in Protobuf message).
+
+### Q2: How are Protobuf `oneof` fields represented in JSON?
+A2: Only one field from the oneof is allowed in JSON; conversion fails if multiple or none are present (JSON-to-PB). Only the set oneof field is output (PB-to-JSON).
+
+### Q3: How to handle Protobuf `bytes` fields?
+A3: By default, `bytes` fields are represented as Base64 strings in JSON. Switch to raw bytes via `bytes_parse_mode` (JSON-to-PB) and `bytes_output_mode` (PB-to-JSON).
+
+### Q4: Does Merak's in situ parsing support JSON-to-PB conversion?
+A4: Yes. If the JSON string is parsed into Merak DOM via in situ parsing, conversion to PB requires no additional string copying—offering higher performance.
+
+### Q5: How to format the converted JSON output?
+A5: Serialize the DOM with Merak's `PrettyWriter`, or set `PbToJsonOptions::pretty_print = true` to generate formatted JSON strings directly.

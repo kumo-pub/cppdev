@@ -1,0 +1,416 @@
+# Streams
+In Merak, `merak::json::Stream` is a concept (referring to C++ concepts) used for reading and writing JSON. Here we first introduce how to use the various streams provided by Merak, then explain how to define custom streams yourself.
+
+[TOC]
+
+# Memory Streams {#MemoryStreams}
+Memory streams store JSON in memory.
+
+## StringStream (Input) {#StringStream}
+`StringStream` is the most basic input stream, representing a complete, read-only JSON stored in memory. It is defined in `merak/json.h`.
+
+```cpp
+#include "merak/json/document.h" // Includes "merak/json.h"
+
+using namespace merak::json;
+
+// ...
+const char json[] = "[1, 2, 3, 4]";
+StringStream s(json);
+
+Document d;
+d.ParseStream(s);
+```
+
+Since this is a very common usage pattern, RapidJSON provides `Document::Parse(const char*)` to do exactly the same thing:
+
+```cpp
+// ...
+const char json[] = "[1, 2, 3, 4]";
+Document d;
+d.Parse(json);
+```
+
+Note that `StringStream` is a typedef of `GenericStringStream<UTF8<> >`; users can use other encoding classes to represent the character set used by the stream.
+
+## StringBuffer (Output) {#StringBuffer}
+`StringBuffer` is a simple output stream. It allocates a memory buffer for writing the entire JSON. You can retrieve this buffer using `GetString()`.
+
+```cpp
+#include "merak/json/stringbuffer.h"
+#include <merak/json/writer.h>
+
+StringBuffer buffer;
+Writer<StringBuffer> writer(buffer);
+d.Accept(writer);
+
+const char* output = buffer.GetString();
+```
+
+When the buffer overflows, it will automatically increase its capacity. The default capacity is 256 characters (256 bytes for UTF8, 512 bytes for UTF16, etc.). Users can provide a custom allocator and initial capacity:
+
+```cpp
+StringBuffer buffer1(0, 1024); // Use its own allocator, initial size = 1024
+StringBuffer buffer2(allocator, 1024);
+```
+
+If no allocator is specified, `StringBuffer` will instantiate an internal allocator on its own.
+
+Similarly, `StringBuffer` is a typedef of `GenericStringBuffer<UTF8<> >`.
+
+# File Streams {#FileStreams}
+When parsing a JSON from a file, you can read the entire JSON into memory and use the `StringStream` described above.
+
+However, if the JSON is large or memory is limited, you can use `FileReadStream` instead. It only reads a portion of the file into a buffer and parses that portion. When all characters in the buffer are consumed, it reads the next portion from the file.
+
+## FileReadStream (Input) {#FileReadStream}
+`FileReadStream` reads a file via a `FILE` pointer. Users need to provide a buffer:
+
+```cpp
+#include "merak/json/filereadstream.h"
+#include <cstdio>
+
+using namespace merak::json;
+
+FILE* fp = fopen("big.json", "rb"); // Use "r" on non-Windows platforms
+
+char readBuffer[65536];
+FileReadStream is(fp, readBuffer, sizeof(readBuffer));
+
+Document d;
+d.ParseStream(is);
+
+fclose(fp);
+```
+
+Unlike `StringStreams`, `FileReadStream` is a byte stream and does not handle encoding. If the file is not encoded in UTF-8, you can wrap the byte stream with `EncodedInputStream` (discussed shortly).
+
+In addition to reading files, users can use `FileReadStream` to read from `stdin`.
+
+## FileWriteStream (Output) {#FileWriteStream}
+`FileWriteStream` is a buffered output stream with usage very similar to `FileReadStream`:
+
+```cpp
+#include "merak/json/filewritestream.h"
+#include <merak/json/writer.h>
+#include <cstdio>
+
+using namespace merak::json;
+
+Document d;
+d.Parse(json);
+// ...
+
+FILE* fp = fopen("output.json", "wb"); // Use "w" on non-Windows platforms
+
+char writeBuffer[65536];
+FileWriteStream os(fp, writeBuffer, sizeof(writeBuffer));
+
+Writer<FileWriteStream> writer(os);
+d.Accept(writer);
+
+fclose(fp);
+```
+
+It can also direct output to `stdout`.
+
+# iostream Wrappers {#iostreamWrapper}
+Based on user requests, RapidJSON provides official wrapper classes for `std::basic_istream` and `std::basic_ostream`. However, note that their performance is significantly lower than the other streams mentioned above.
+
+## IStreamWrapper {#IStreamWrapper}
+`IStreamWrapper` wraps any class inherited from `std::istream` (e.g., `std::istringstream`, `std::stringstream`, `std::ifstream`, `std::fstream`) into a Merak input stream:
+
+~~~cpp
+#include <merak/json/document.h>
+#include <merak/json/istreamwrapper.h>
+#include <fstream>
+
+using namespace merak::json;
+using namespace std;
+
+ifstream ifs("test.json");
+IStreamWrapper isw(ifs);
+
+Document d;
+d.ParseStream(isw);
+~~~
+
+For classes inherited from `std::wistream`, use `WIStreamWrapper`.
+
+## OStreamWrapper {#OStreamWrapper}
+Similarly, `OStreamWrapper` wraps any class inherited from `std::ostream` (e.g., `std::ostringstream`, `std::stringstream`, `std::ofstream`, `std::fstream`) into a Merak output stream:
+
+~~~cpp
+#include <merak/json/document.h>
+#include <merak/json/ostreamwrapper.h>
+#include <merak/json/writer.h>
+#include <fstream>
+
+using namespace merak::json;
+using namespace std;
+
+Document d;
+d.Parse(json);
+
+// ...
+
+ofstream ofs("output.json");
+OStreamWrapper osw(ofs);
+
+Writer<OStreamWrapper> writer(osw);
+d.Accept(writer);
+~~~
+
+For classes inherited from `std::wostream`, use `WOStreamWrapper`.
+
+# Encoded Streams {#EncodedStreams}
+Encoded streams do not store JSON themselves; they provide basic encoding/decoding functionality by wrapping byte streams.
+
+As mentioned earlier, we can directly read UTF-8 byte streams. However, UTF-16 and UTF-32 have endianness issues. To handle endianness correctly, bytes need to be converted to characters (e.g., `wchar_t` for UTF-16) when reading, and characters converted to bytes when writing.
+
+Additionally, we need to handle [byte order marks (BOM)](http://en.wikipedia.org/wiki/Byte_order_mark). When reading from a byte stream, we need to detect the BOM or simply skip it if present. When writing JSON to a byte stream, we can optionally write a BOM.
+
+If the stream's encoding is known at compile time, you can use `EncodedInputStream` and `EncodedOutputStream`. If the stream may contain JSON encoded in UTF-8, UTF-16LE, UTF-16BE, UTF-32LE, or UTF-32BE (with encoding only known at runtime), you can use `AutoUTFInputStream` and `AutoUTFOutputStream`. These streams are defined in `merak/json/encodedstream.h`.
+
+Note that these encoded streams can be applied to streams other than files—for example, you can wrap in-memory buffers or custom byte streams with encoded streams.
+
+## EncodedInputStream {#EncodedInputStream}
+`EncodedInputStream` has two template parameters:
+1. The `Encoding` type (e.g., `UTF8`, `UTF16LE` defined in `merak/json/encodings.h`)
+2. The type of the wrapped stream
+
+```cpp
+#include "merak/json/document.h"
+#include "merak/json/filereadstream.h"   // FileReadStream
+#include "merak/json/encodedstream.h"    // EncodedInputStream
+#include <cstdio>
+
+using namespace merak::json;
+
+FILE* fp = fopen("utf16le.json", "rb"); // Use "r" on non-Windows platforms
+
+char readBuffer[256];
+FileReadStream bis(fp, readBuffer, sizeof(readBuffer));
+
+EncodedInputStream<UTF16LE<>, FileReadStream> eis(bis);  // Wrap bis with eis
+
+Document d; // Document is GenericDocument<UTF8<> > 
+d.ParseStream<0, UTF16LE<> >(eis);  // Parse UTF-16LE file to UTF-8 in memory
+
+fclose(fp);
+```
+
+## EncodedOutputStream {#EncodedOutputStream}
+`EncodedOutputStream` is similar, but its constructor has a `bool putBOM` parameter to control whether to write a BOM to the output byte stream:
+
+```cpp
+#include "merak/json/filewritestream.h"  // FileWriteStream
+#include "merak/json/encodedstream.h"    // EncodedOutputStream
+#include <merak/json/writer.h>
+#include <cstdio>
+
+Document d;         // Document is GenericDocument<UTF8<> > 
+// ...
+
+FILE* fp = fopen("output_utf32le.json", "wb"); // Use "w" on non-Windows platforms
+
+char writeBuffer[256];
+FileWriteStream bos(fp, writeBuffer, sizeof(writeBuffer));
+
+typedef EncodedOutputStream<UTF32LE<>, FileWriteStream> OutputStream;
+OutputStream eos(bos, true);   // Write BOM
+
+Writer<OutputStream, UTF8<>, UTF32LE<>> writer(eos);
+d.Accept(writer);   // Generate UTF32-LE file from UTF-8 in memory
+
+fclose(fp);
+```
+
+## AutoUTFInputStream {#AutoUTFInputStream}
+Sometimes applications need to handle all supported JSON encodings. `AutoUTFInputStream` first detects the encoding using the BOM. If no BOM exists, it uses characteristics of valid JSON to detect the encoding. If both methods fail, it falls back to the UTF type provided in the constructor.
+
+Since characters (code units) can be 8-bit, 16-bit, or 32-bit, `AutoUTFInputStream` requires a character type that can store at least 32 bits. We can use `unsigned` as the template parameter:
+
+```cpp
+#include "merak/json/document.h"
+#include "merak/json/filereadstream.h"   // FileReadStream
+#include "merak/json/encodedstream.h"    // AutoUTFInputStream
+#include <cstdio>
+
+using namespace merak::json;
+
+FILE* fp = fopen("any.json", "rb"); // Use "r" on non-Windows platforms
+
+char readBuffer[256];
+FileReadStream bis(fp, readBuffer, sizeof(readBuffer));
+
+AutoUTFInputStream<unsigned, FileReadStream> eis(bis);  // Wrap bis with eis
+
+Document d;         // Document is GenericDocument<UTF8<> > 
+d.ParseStream<0, AutoUTF<unsigned> >(eis); // Parse any UTF-encoded file to UTF-8 in memory
+
+fclose(fp);
+```
+
+To specify the stream's encoding, use `AutoUTF<CharType>` as the parameter for `ParseStream()` (as shown in the example above).
+
+You can use `UTFType GetType()` to retrieve the detected UTF type and `HasBOM()` to check if the input stream contains a BOM.
+
+## AutoUTFOutputStream {#AutoUTFOutputStream}
+Similarly, to select the output encoding at runtime, use `AutoUTFOutputStream`. This class itself is not "auto"—you need to specify the UTF type and whether to write a BOM at runtime:
+
+```cpp
+using namespace merak::json;
+
+void WriteJSONFile(FILE* fp, UTFType type, bool putBOM, const Document& d) {
+    char writeBuffer[256];
+    FileWriteStream bos(fp, writeBuffer, sizeof(writeBuffer));
+
+    typedef AutoUTFOutputStream<unsigned, FileWriteStream> OutputStream;
+    OutputStream eos(bos, type, putBOM);
+    
+    Writer<OutputStream, UTF8<>, AutoUTF<> > writer(eos);
+    d.Accept(writer);
+}
+```
+
+`AutoUTFInputStream`/`AutoUTFOutputStream` are more convenient than `EncodedInputStream`/`EncodedOutputStream` but incur a small runtime overhead.
+
+# Custom Streams {#CustomStream}
+In addition to memory/file streams, users can create custom stream classes that adapt to the Merak API—for example, network streams or streams reading from compressed files.
+
+Merak uses templates to combine different types. A class can act as a stream as long as it implements all required interfaces. The stream concept is defined in the comments of `merak/json.h`:
+
+```cpp
+concept Stream {
+    typename Ch;    //!< Character type of the stream
+
+    //! Read the current character from the stream without moving the read cursor
+    Ch Peek() const;
+
+    //! Read the current character from the stream and move the read cursor to the next character.
+    Ch Take();
+
+    //! Get the read cursor position.
+    //! \return Number of characters read since the start.
+    size_t Tell();
+
+    //! Start writing operation from the current read cursor.
+    //! \return Pointer to the start of the writing buffer.
+    Ch* PutBegin();
+
+    //! Write a character.
+    void Put(Ch c);
+
+    //! Flush the buffer.
+    void Flush();
+
+    //! Finish the writing operation.
+    //! \param begin Pointer returned by PutBegin().
+    //! \return Number of characters written.
+    size_t PutEnd(Ch* begin);
+}
+```
+
+- Input streams **must** implement `Peek()`, `Take()`, and `Tell()`.
+- Output streams **must** implement `Put()` and `Flush()`.
+- `PutBegin()` and `PutEnd()` are special interfaces used only for *in situ* parsing. Regular streams do not need to implement them, but empty implementations must still be provided to avoid compilation errors.
+
+## Example: istream Wrapper {#ExampleIStreamWrapper}
+The following simple example is a wrapper for `std::istream`, implementing only 3 required functions:
+
+```cpp
+class MyIStreamWrapper {
+public:
+    typedef char Ch;
+
+    MyIStreamWrapper(std::istream& is) : is_(is) {
+    }
+
+    Ch Peek() const { // 1
+        int c = is_.peek();
+        return c == std::char_traits<char>::eof() ? '\0' : (Ch)c;
+    }
+
+    Ch Take() { // 2
+        int c = is_.get();
+        return c == std::char_traits<char>::eof() ? '\0' : (Ch)c;
+    }
+
+    size_t Tell() const { return (size_t)is_.tellg(); } // 3
+
+    Ch* PutBegin() { assert(false); return 0; }
+    void Put(Ch) { assert(false); }
+    void Flush() { assert(false); }
+    size_t PutEnd(Ch*) { assert(false); return 0; }
+
+private:
+    MyIStreamWrapper(const MyIStreamWrapper&);
+    MyIStreamWrapper& operator=(const MyIStreamWrapper&);
+
+    std::istream& is_;
+};
+```
+
+Users can use it to wrap instances of `std::stringstream`, `std::ifstream`, etc.:
+
+```cpp
+const char* json = "[1,2,3,4]";
+std::stringstream ss(json);
+MyIStreamWrapper is(ss);
+
+Document d;
+d.ParseStream(is);
+```
+
+Note that due to internal overhead in the standard library, this implementation may have lower performance than Merak's memory/file streams.
+
+## Example: ostream Wrapper {#ExampleOStreamWrapper}
+The following example is a wrapper for `std::ostream`, implementing only 2 required functions:
+
+```cpp
+class MyOStreamWrapper {
+public:
+    typedef char Ch;
+
+    MyOStreamWrapper(std::ostream& os) : os_(os) {
+    }
+
+    Ch Peek() const { assert(false); return '\0'; }
+    Ch Take() { assert(false); return '\0'; }
+    size_t Tell() const { assert(false); return 0; }
+
+    Ch* PutBegin() { assert(false); return 0; }
+    void Put(Ch c) { os_.put(c); }                  // 1
+    void Flush() { os_.flush(); }                   // 2
+    size_t PutEnd(Ch*) { assert(false); return 0; }
+
+private:
+    MyOStreamWrapper(const MyOStreamWrapper&);
+    MyOStreamWrapper& operator=(const MyOStreamWrapper&);
+
+    std::ostream& os_;
+};
+```
+
+Users can use it to wrap instances of `std::stringstream`, `std::ofstream`, etc.:
+
+```cpp
+Document d;
+// ...
+
+std::stringstream ss;
+MyOStreamWrapper os(ss);
+
+Writer<MyOStreamWrapper> writer(os);
+d.Accept(writer);
+```
+
+Note that due to internal overhead in the standard library, this implementation may have lower performance than Merak's memory/file streams.
+
+# Summary {#Summary}
+This section describes the various stream classes provided by Merak:
+- Memory streams are simple and straightforward.
+- For JSON stored in files, file streams reduce the memory required for parsing and generation.
+- Encoded streams convert between byte streams and character streams, handling endianness and BOMs.
+- Finally, users can create custom streams using a simple interface to support specialized I/O scenarios.

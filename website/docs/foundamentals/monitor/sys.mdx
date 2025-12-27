@@ -1,0 +1,48 @@
+# System Monitoring
+`tally` provides monitoring interfaces for system metrics, which are defined in the file:
+```cpp
+<tally/sigar.h>
+```
+
+## Core Functions and Features
+Sigar abstracts the underlying differences between various operating systems through a unified API, delivering consistent metric collection capabilities. For instance, it allows retrieving process lists or real-time CPU load using the same method on both Windows and Linux platforms.
+
+Its data collection scope includes but is not limited to: CPU core count and utilization rate, physical and virtual memory usage, disk partition read/write speeds, network interface traffic statistics, etc. This design simplifies the complexity of multi-platform adaptation for developers.
+
+Sigar (System Information Gatherer and Reporter) is a cross-platform system metrics component, primarily designed to collect key performance data of operating systems. It can efficiently obtain usage information of resources such as CPU, memory, disk, and network, making it suitable for scenarios like operation and maintenance monitoring, security auditing, and academic research.
+
+## Default Monitoring
+The exported system monitoring metrics are defined in the file:
+```cpp
+<tally/sigar_metric.h>
+```
+Refer to the table below for the exported metrics.
+
+| Metric Type           | Variable         | Description                          |
+|:---------------------|:----------------|:-------------------------------------|
+| `FuncGauge<int64_t>`  | mem_ram         | Current system RAM                   |
+| `FuncGauge<int64_t>`  | mem_total       | Total system memory                  |
+| `FuncGauge<int64_t>`  | mem_used        | Current system memory usage          |
+| `FuncGauge<int64_t>`  | mem_free        | Current free system memory           |
+| `FuncGauge<int64_t>`  | mem_actual_used | Actual current system memory usage   |
+| `FuncGauge<int64_t>`  | mem_actual_free | Actual current free system memory    |
+| `FuncGauge<int64_t>`  | swap_total      | Total swap partition size            |
+| `FuncGauge<int64_t>`  | swap_used       | Swap partition usage                 |
+| `FuncGauge<int64_t>`  | swap_free       | Free swap partition space            |
+| `FuncGauge<int64_t>`  | cpu_user        | CPU user time                        |
+| `FuncGauge<int64_t>`  | cpu_sys         | CPU system time                      |
+| `FuncGauge<int64_t>`  | cpu_nice        | CPU nice time                        |
+| `FuncGauge<int64_t>`  | cpu_idle        | CPU idle time                        |
+| `FuncGauge<int64_t>`  | cpu_wait        | CPU wait time                        |
+| `FuncGauge<int64_t>`  | cpu_irq         | CPU IRQ time                         |
+| `FuncGauge<int64_t>`  | cpu_soft_irq    | CPU soft IRQ time                    |
+| `FuncGauge<int64_t>`  | cpu_stolen      | CPU stolen time                      |
+| `FuncGauge<int64_t>`  | cpu_total       | Total CPU time                       |
+| `FuncGauge<double>`   | uptime          | System uptime                        |
+| `FuncGauge<double>`   | loadavg_1m      | System 1-minute load average         |
+| `FuncGauge<double>`   | loadavg_5m      | System 5-minute load average         |
+| `FuncGauge<double>`   | loadavg_15m     | System 15-minute load average        |
+| `FuncGauge<double>`   | disk_io_read    | Disk IO read throughput              |
+| `FuncGauge<double>`   | disk_io_write   | Disk IO write throughput             |
+| `FuncGauge<double>`   | disk_io_total   | Total disk IO (read + write) throughput |
+

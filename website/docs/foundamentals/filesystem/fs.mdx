@@ -1,0 +1,370 @@
+# Turbo File System Library (turbo::files) - Usage Guide & Function Details
+The Turbo File System Library (`turbo/files`) is designed based on the C++17 `std::filesystem` interface, adapted to Turbo ecosystem specifications (no exceptions thrown, returns `turbo::Status`/`turbo::Result<T>`, CamelCase class names + snake_case function names). It provides cross-platform file system operation capabilities, focusing on core scenarios such as path handling, directory traversal, file attribute management, and file/directory operations.
+
+## I. Overview of Core Classes and Functions
+| Class/Enum               | Core Function                                                                 |
+|--------------------------|-------------------------------------------------------------------------------|
+| `turbo::FilePath`        | Syntax processing of paths (construction, concatenation, parsing, normalization, etc.), no validation of path existence |
+| `turbo::DirectoryEntry`  | Encapsulates the path and status of a directory entry (file/directory), used with iterators |
+| `turbo::DirectoryIterator` | Non-recursive traversal of all entries (files/subdirectories) in a directory |
+| `turbo::RecursiveDirectoryIterator` | Recursive traversal of all entries (including nested subdirectories) in a directory |
+| `turbo::FileStatus`      | Encapsulates the status of a file/directory (type, permissions, size, modification time, etc.) |
+| `turbo::SpaceInfo`       | Disk space information (total space, available space, used space) |
+| `turbo::FileType`        | Enumerates file types (directory, regular file, symbolic link, block device, character device, etc.) |
+| `turbo::Perms`           | Enumerates file permissions (read/write/execute, owner/group/other users) |
+| `turbo::CopyOptions`     | Options for copying files/directories (overwrite, recursive, preserve permissions, etc.) |
+| `turbo::DirectoryOptions` | Options for directory traversal/creation (follow symbolic links, skip empty directories, etc.) |
+| `turbo::FileTimeType`    | Enumerates file time types (creation time, last access time, last modification time) |
+
+## II. Core Functions and Usage Examples
+### 1. Path Operations (turbo::FilePath)
+`FilePath` is the core of path operations, handling only the "syntax" of paths (e.g., concatenation, parsing) without validating path existence. It supports all path forms including absolute paths, relative paths, and canonical paths.
+
+#### Core Functions
+| Function Name            | Function                                                                 |
+|--------------------------|--------------------------------------------------------------------------|
+| `FilePath(std::string_view path)` | Constructs a path object (supports native path formats, e.g., `C:\a.txt` on Windows, `/a.txt` on Linux) |
+| `append(std::string_view component)` | Concatenates a subpath (automatically handles separators, e.g., `"/a"` + `"b"` → `"/a/b"`) |
+| `parent_path()`          | Gets the parent directory path (e.g., `"/a/b.txt"` → `"/a"`)             |
+| `filename()`             | Gets the file name (including extension, e.g., `"/a/b.txt"` → `"b.txt"`)  |
+| `stem()`                 | Gets the file name (excluding extension, e.g., `"/a/b.txt"` → `"b"`)     |
+| `extension()`            | Gets the file extension (e.g., `"/a/b.txt"` → `".txt"`)                  |
+| `is_absolute()`          | Checks if the path is absolute                                           |
+| `is_relative()`          | Checks if the path is relative                                           |
+| `lexically_normal()`     | Normalizes the path (removes `.`/`..`, e.g., `"/a/./b/../c"` → `"/a/c"`) |
+| `lexically_absolute()`   | Converts to an absolute path (based on the current working directory)    |
+
+#### Example Code
+```cpp
+#include <turbo/files/filesystem.h>
+#include <iostream>
+#include <turbo/status/status.h>
+
+int main() {
+    // 1. Construct paths
+    turbo::FilePath base_path("/home/user/docs");
+    turbo::FilePath file_path(base_path);
+    // Concatenate subpath: /home/user/docs/report.pdf
+    file_path.append("report.pdf");
+
+    // 2. Path parsing
+    std::cout << "Full path: " << file_path.string() << std::endl;
+    std::cout << "Parent directory: " << file_path.parent_path().string() << std::endl;
+    std::cout << "File name: " << file_path.filename().string() << std::endl;
+    std::cout << "File name (without extension): " << file_path.stem().string() << std::endl;
+    std::cout << "Extension: " << file_path.extension().string() << std::endl;
+
+    // 3. Path normalization
+    turbo::FilePath messy_path("/home/user/./docs/../downloads/./photo.jpg");
+    turbo::FilePath normal_path = messy_path.lexically_normal();
+    std::cout << "Normalized path: " << normal_path.string() << std::endl; // /home/user/downloads/photo.jpg
+
+    // 4. Absolute/relative path check
+    turbo::FilePath rel_path("test.txt");
+    std::cout << "Is rel_path relative: " << (rel_path.is_relative() ? "Yes" : "No") << std::endl;
+    // Convert to absolute path
+    turbo::Result<turbo::FilePath> abs_result = rel_path.lexically_absolute();
+    if (abs_result.ok()) {
+        std::cout << "Absolute path of rel_path: " << abs_result.value().string() << std::endl;
+    } else {
+        std::cout << "Failed to convert to absolute path: " << abs_result.status().message() << std::endl;
+    }
+
+    return 0;
+}
+```
+
+### 2. Directory Traversal (DirectoryIterator/RecursiveDirectoryIterator)
+Used to traverse files/subdirectories in a directory: `DirectoryIterator` for non-recursive traversal, `RecursiveDirectoryIterator` for recursive traversal of nested subdirectories. Traversal results are encapsulated as `DirectoryEntry`, which can retrieve entry paths, status, etc.
+
+#### Core Functions/Interfaces
+| Function/Interface       | Function                                                                 |
+|--------------------------|--------------------------------------------------------------------------|
+| `DirectoryIterator(FilePath path, DirectoryOptions opts = {})` | Constructs a directory iterator (opts specifies whether to follow symbolic links) |
+| `RecursiveDirectoryIterator(FilePath path, DirectoryOptions opts = {})` | Constructs a recursive directory iterator |
+| `DirectoryEntry::path()` | Gets the path of the traversed entry                                     |
+| `DirectoryEntry::status()` | Gets the file status of the traversed entry (returns `Result<FileStatus>`) |
+| `begin()`/`end()`        | Iterator interface (supports range-based for loops)                      |
+
+#### Example Code
+```cpp
+#include <turbo/files/filesystem.h>
+#include <iostream>
+#include <turbo/status/status.h>
+
+// Non-recursive directory traversal
+void traverse_directory(const turbo::FilePath& dir_path) {
+    turbo::Result<turbo::DirectoryIterator> iter_result = turbo::DirectoryIterator::open(dir_path);
+    if (!iter_result.ok()) {
+        std::cout << "Failed to open directory: " << iter_result.status().message() << std::endl;
+        return;
+    }
+
+    turbo::DirectoryIterator iter = iter_result.value();
+    for (const auto& entry : iter) { // Range-based for traversal
+        if (!entry.ok()) {
+            std::cout << "Failed to traverse entry: " << entry.status().message() << std::endl;
+            continue;
+        }
+        turbo::DirectoryEntry dir_entry = entry.value();
+        // Get entry path
+        turbo::FilePath entry_path = dir_entry.path();
+        // Get entry status
+        turbo::Result<turbo::FileStatus> status_result = dir_entry.status();
+        if (status_result.ok()) {
+            turbo::FileStatus status = status_result.value();
+            // Determine file type
+            std::string file_type;
+            if (status.type() == turbo::FileType::directory) {
+                file_type = "Directory";
+            } else if (status.type() == turbo::FileType::regular) {
+                file_type = "Regular file";
+            } else if (status.type() == turbo::FileType::symlink) {
+                file_type = "Symbolic link";
+            } else {
+                file_type = "Other type";
+            }
+            std::cout << "Entry: " << entry_path.string() << " Type: " << file_type << std::endl;
+        }
+    }
+}
+
+// Recursive directory traversal
+void traverse_directory_recursive(const turbo::FilePath& dir_path) {
+    turbo::Result<turbo::RecursiveDirectoryIterator> iter_result = turbo::RecursiveDirectoryIterator::open(dir_path);
+    if (!iter_result.ok()) {
+        std::cout << "Failed to open recursive directory: " << iter_result.status().message() << std::endl;
+        return;
+    }
+
+    turbo::RecursiveDirectoryIterator iter = iter_result.value();
+    for (const auto& entry : iter) {
+        if (!entry.ok()) {
+            std::cout << "Failed to recursively traverse entry: " << entry.status().message() << std::endl;
+            continue;
+        }
+        turbo::DirectoryEntry dir_entry = entry.value();
+        std::cout << "Recursive entry: " << dir_entry.path().string() << std::endl;
+    }
+}
+
+int main() {
+    turbo::FilePath test_dir("/home/user/docs");
+    std::cout << "===== Non-recursive Traversal =====" << std::endl;
+    traverse_directory(test_dir);
+
+    std::cout << "\n===== Recursive Traversal =====" << std::endl;
+    traverse_directory_recursive(test_dir);
+
+    return 0;
+}
+```
+
+### 3. File Status & Attributes (FileStatus/FileType/Perms)
+`FileStatus` encapsulates core attributes of files/directories, enabling retrieval of file type, permissions, size, modification time, etc. `FileType` enumerates file types, and `Perms` enumerates file permissions.
+
+#### Core Functions
+| Function Name            | Function                                                                 |
+|--------------------------|--------------------------------------------------------------------------|
+| `turbo::status(FilePath path)` | Gets file status (returns `Result<FileStatus>`)                          |
+| `FileStatus::type()`     | Gets file type (returns `FileType`)                                      |
+| `FileStatus::permissions()` | Gets file permissions (returns `Perms`)                                  |
+| `FileStatus::file_size()` | Gets file size (in bytes, returns `uint64_t`)                            |
+| `FileStatus::last_write_time()` | Gets last modification time (returns timestamp corresponding to `FileTimeType`) |
+| `turbo::is_regular_file(FilePath path)` | Checks if it is a regular file (returns `Result<bool>`)                  |
+| `turbo::is_directory(FilePath path)` | Checks if it is a directory (returns `Result<bool>`)                     |
+| `turbo::is_symlink(FilePath path)` | Checks if it is a symbolic link (returns `Result<bool>`)                 |
+
+#### Example Code
+```cpp
+#include <turbo/files/filesystem.h>
+#include <iostream>
+#include <turbo/status/status.h>
+
+void get_file_info(const turbo::FilePath& file_path) {
+    // Get file status
+    turbo::Result<turbo::FileStatus> status_result = turbo::status(file_path);
+    if (!status_result.ok()) {
+        std::cout << "Failed to get file status: " << status_result.status().message() << std::endl;
+        return;
+    }
+    turbo::FileStatus fs = status_result.value();
+
+    // 1. File type
+    std::cout << "File type: ";
+    switch (fs.type()) {
+        case turbo::FileType::none: std::cout << "Unknown"; break;
+        case turbo::FileType::directory: std::cout << "Directory"; break;
+        case turbo::FileType::regular: std::cout << "Regular file"; break;
+        case turbo::FileType::symlink: std::cout << "Symbolic link"; break;
+        case turbo::FileType::block: std::cout << "Block device"; break;
+        case turbo::FileType::character: std::cout << "Character device"; break;
+        case turbo::FileType::fifo: std::cout << "FIFO"; break;
+        case turbo::FileType::socket: std::cout << "Socket"; break;
+        default: std::cout << "Other";
+    }
+    std::cout << std::endl;
+
+    // 2. File size (valid only for regular files)
+    if (fs.type() == turbo::FileType::regular) {
+        std::cout << "File size: " << fs.file_size() << " bytes" << std::endl;
+    }
+
+    // 3. File permissions
+    turbo::Perms perms = fs.permissions();
+    std::cout << "File permissions: ";
+    // Check owner read permission
+    if ((perms & turbo::Perms::owner_read) != turbo::Perms::none) {
+        std::cout << "Owner readable ";
+    }
+    // Check owner write permission
+    if ((perms & turbo::Perms::owner_write) != turbo::Perms::none) {
+        std::cout << "Owner writable ";
+    }
+    // Check owner execute permission
+    if ((perms & turbo::Perms::owner_exec) != turbo::Perms::none) {
+        std::cout << "Owner executable ";
+    }
+    std::cout << std::endl;
+
+    // 4. Quick file type check
+    turbo::Result<bool> is_regular = turbo::is_regular_file(file_path);
+    if (is_regular.ok()) {
+        std::cout << "Is regular file: " << (is_regular.value() ? "Yes" : "No") << std::endl;
+    }
+}
+
+int main() {
+    turbo::FilePath file_path("/home/user/docs/report.pdf");
+    get_file_info(file_path);
+
+    return 0;
+}
+```
+
+### 4. Disk Space Query (SpaceInfo)
+`SpaceInfo` encapsulates disk partition space information. Use the `turbo::space` function to get space data of the partition where the specified path resides.
+
+#### Core Functions
+| Function Name            | Function                                                                 |
+|--------------------------|--------------------------------------------------------------------------|
+| `turbo::space(FilePath path)` | Gets disk space info of the partition containing the path (returns `Result<SpaceInfo>`) |
+| `SpaceInfo::capacity`    | Total partition space (in bytes)                                         |
+| `SpaceInfo::free`        | Free partition space (in bytes, including space unavailable to non-privileged users) |
+| `SpaceInfo::available`   | Available partition space (in bytes, usable by non-privileged users)     |
+
+#### Example Code
+```cpp
+#include <turbo/files/filesystem.h>
+#include <iostream>
+#include <turbo/status/status.h>
+
+void get_disk_space(const turbo::FilePath& path) {
+    turbo::Result<turbo::SpaceInfo> space_result = turbo::space(path);
+    if (!space_result.ok()) {
+        std::cout << "Failed to get disk space: " << space_result.status().message() << std::endl;
+        return;
+    }
+    turbo::SpaceInfo si = space_result.value();
+
+    // Convert to GB (1GB = 1024*1024*1024 bytes)
+    const uint64_t GB = 1024 * 1024 * 1024;
+    std::cout << "Total partition space: " << static_cast<double>(si.capacity) / GB << " GB" << std::endl;
+    std::cout << "Free partition space: " << static_cast<double>(si.free) / GB << " GB" << std::endl;
+    std::cout << "Available partition space: " << static_cast<double>(si.available) / GB << " GB" << std::endl;
+}
+
+int main() {
+    // Query space of the partition containing the root directory (Linux)
+    turbo::FilePath root_path("/");
+    get_disk_space(root_path);
+
+    // Windows example: Query C drive space
+    // turbo::FilePath c_path("C:\\");
+    // get_disk_space(c_path);
+
+    return 0;
+}
+```
+
+### 5. File/Directory Operations (Create, Delete, Copy, Move)
+Turbo provides a series of file/directory operation functions, all returning `turbo::Status` (no return value) or `turbo::Result<T>` (with return value) without throwing exceptions. Operation behavior can be controlled via `CopyOptions`/`DirectoryOptions`.
+
+#### Core Functions
+| Function Name            | Function                                                                 |
+|--------------------------|--------------------------------------------------------------------------|
+| `turbo::create_directory(FilePath path)` | Creates a single directory (returns `Status`)                            |
+| `turbo::create_directories(FilePath path)` | Recursively creates multi-level directories (returns `Status`)           |
+| `turbo::remove(FilePath path)` | Deletes a file/empty directory (returns `Status`)                        |
+| `turbo::remove_all(FilePath path)` | Recursively deletes a directory (including all contents), returns the number of deleted files ( `Result<uint64_t>`) |
+| `turbo::copy(FilePath src, FilePath dst, CopyOptions opts = {})` | Copies a file/directory (returns `Status`)                               |
+| `turbo::rename(FilePath src, FilePath dst)` | Renames/moves a file/directory (returns `Status`)                        |
+
+#### Example Code
+```cpp
+#include <turbo/files/filesystem.h>
+#include <iostream>
+#include <turbo/status/status.h>
+
+void file_operations_demo() {
+    // 1. Create multi-level directories
+    turbo::FilePath new_dir("/home/user/test/dir1/dir2");
+    turbo::Status create_status = turbo::create_directories(new_dir);
+    if (create_status.ok()) {
+        std::cout << "Successfully created multi-level directory: " << new_dir.string() << std::endl;
+    } else {
+        std::cout << "Failed to create multi-level directory: " << create_status.message() << std::endl;
+        return;
+    }
+
+    // 2. Copy file
+    turbo::FilePath src_file("/home/user/docs/report.pdf");
+    turbo::FilePath dst_file("/home/user/test/report_copy.pdf");
+    // Copy options: overwrite existing files
+    turbo::CopyOptions copy_opts;
+    copy_opts.overwrite_existing = true;
+    turbo::Status copy_status = turbo::copy(src_file, dst_file, copy_opts);
+    if (copy_status.ok()) {
+        std::cout << "Successfully copied file: " << dst_file.string() << std::endl;
+    } else {
+        std::cout << "Failed to copy file: " << copy_status.message() << std::endl;
+    }
+
+    // 3. Rename file
+    turbo::FilePath rename_dst("/home/user/test/report_renamed.pdf");
+    turbo::Status rename_status = turbo::rename(dst_file, rename_dst);
+    if (rename_status.ok()) {
+        std::cout << "Successfully renamed file: " << rename_dst.string() << std::endl;
+    } else {
+        std::cout << "Failed to rename file: " << rename_status.message() << std::endl;
+    }
+
+    // 4. Delete file
+    turbo::Status remove_file_status = turbo::remove(rename_dst);
+    if (remove_file_status.ok()) {
+        std::cout << "Successfully deleted file: " << rename_dst.string() << std::endl;
+    } else {
+        std::cout << "Failed to delete file: " << remove_file_status.message() << std::endl;
+    }
+
+    // 5. Recursively delete directory
+    turbo::Result<uint64_t> remove_result = turbo::remove_all(new_dir.parent_path()); // Delete /home/user/test
+    if (remove_result.ok()) {
+        std::cout << "Successfully deleted directory recursively, " << remove_result.value() << " files/directories deleted" << std::endl;
+    } else {
+        std::cout << "Failed to delete directory recursively: " << remove_result.status().message() << std::endl;
+    }
+}
+
+int main() {
+    file_operations_demo();
+    return 0;
+}
+```
+
+## III. Key Notes
+1. **Cross-Platform Compatibility**: `turbo::FilePath` automatically adapts to path formats on Windows/Linux/macOS (e.g., Windows drive letters, Linux root directories) — no manual separator handling required;
+2. **Error Handling**: All operations return `turbo::Status`/`turbo::Result<T>` — use `ok()` to check operation success, avoiding reliance on exceptions;
+3. **Path Validity**: `FilePath` only handles syntax — validate path existence using `turbo::exists(FilePath path)` (returns `Result<bool>`);
+4. **Permissions & Special Files**: When operating on symbolic links or device files, specify whether to follow symbolic links via `DirectoryOptions` to avoid unintended operations;
+5. **Performance Tips**: For recursive traversal of large directories, prefer `RecursiveDirectoryIterator` (optimized traversal logic internally) to avoid performance loss from manual recursion.

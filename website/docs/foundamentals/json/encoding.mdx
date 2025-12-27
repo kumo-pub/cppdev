@@ -1,0 +1,134 @@
+# Encoding
+According to [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf):
+
+> (in Introduction) JSON text is a sequence of Unicode code points.
+
+Earlier, [RFC4627](http://www.ietf.org/rfc/rfc4627.txt) states:
+
+> (in §3) JSON text SHALL be encoded in Unicode.  The default encoding is UTF-8.
+> (in §6) JSON may be represented using UTF-8, UTF-16, or UTF-32. When JSON is written in UTF-8, JSON is 8-bit compatible.  When JSON is written in UTF-16 or UTF-32, the binary content-transfer-encoding must be used.
+
+Merak supports multiple encodings. It can also validate the encoding of JSON and perform transcoding between different encodings. All these features are implemented internally, without relying on external libraries (e.g., [ICU](http://site.icu-project.org/)).
+
+[TOC]
+
+# Unicode {#Unicode}
+According to the [official Unicode website](http://www.unicode.org/standard/translations/t-chinese.html):
+> Unicode provides a unique number for every character,
+> no matter what platform,
+> no matter what program,
+> no matter what language.
+
+These unique numbers are called **code points**, ranging from `0x0` to `0x10FFFF`.
+
+## Unicode Transformation Formats (UTF) {#UTF}
+There are multiple ways to encode Unicode code points for storage, known as Unicode Transformation Formats (UTF). Merak supports the most commonly used UTF variants:
+
+* UTF-8: An 8-bit variable-length encoding that maps a single code point to 1 to 4 bytes.
+* UTF-16: A 16-bit variable-length encoding that maps a single code point to 1 to 2 16-bit code units (i.e., 2 to 4 bytes).
+* UTF-32: A 32-bit fixed-length encoding that directly maps a single code point to one 32-bit code unit (i.e., 4 bytes).
+
+For UTF-16 and UTF-32, **endianness** is a critical factor. In memory, they are typically stored using the host machine’s native endianness. However, when stored in files or transmitted over networks, the endianness of the byte sequence (little-endian/LE or big-endian/BE) must be explicitly specified.
+
+Merak provides various encodings via structs in `merak/json/encodings.h`:
+
+```cpp
+namespace merak::json {
+
+template<typename CharType = char>
+struct UTF8;
+
+template<typename CharType = wchar_t>
+struct UTF16;
+
+template<typename CharType = wchar_t>
+struct UTF16LE;
+
+template<typename CharType = wchar_t>
+struct UTF16BE;
+
+template<typename CharType = unsigned>
+struct UTF32;
+
+template<typename CharType = unsigned>
+struct UTF32LE;
+
+template<typename CharType = unsigned>
+struct UTF32BE;
+
+} // namespace merak::json
+```
+
+For in-memory text, we typically use `UTF8`, `UTF16`, or `UTF32`. For text processed through I/O operations, `UTF8`, `UTF16LE`, `UTF16BE`, `UTF32LE`, or `UTF32BE` are applicable.
+
+When using DOM-style APIs, the `Encoding` template parameter in `GenericValue<Encoding>` and `GenericDocument<Encoding>` specifies the encoding of JSON strings stored in memory. Thus, `UTF8`, `UTF16`, or `UTF32` are commonly used here— the choice depends on the operating system and other libraries used by the application. For example, the Windows API uses UTF-16 for Unicode characters, while most Linux distributions and applications prefer UTF-8.
+
+Example of declaring a DOM with UTF-16:
+```cpp
+typedef GenericDocument<UTF16<> > WDocument;
+typedef GenericValue<UTF16<> > WValue;
+```
+A more detailed usage example is available in the [DOM's Encoding](stream.mdx) section.
+
+## Character Type {#CharacterType}
+As shown in the declarations above, each encoding has a `CharType` template parameter. This can be misleading: in practice, each `CharType` stores a **code unit**, not a single character (code point). As mentioned earlier, one code point in UTF-8 may be encoded into 1 to 4 code units.
+
+For `UTF16(LE|BE)` and `UTF32(LE|BE)`, `CharType` must be an integer type of at least 2 and 4 bytes, respectively.
+
+Note that C++11 introduced `char16_t` and `char32_t`, which can be used for `UTF16` and `UTF32` respectively.
+
+## AutoUTF {#AutoUTF}
+The encodings described above are statically bound at compile time—in other words, the user must know the encoding used in memory or streams in advance. However, there are scenarios where we need to read/write files with different encodings that can only be determined at runtime.
+
+`AutoUTF` is an encoding designed for this purpose. It selects the appropriate encoding based on the input or output stream. Currently, it should be used with `EncodedInputStream` and `EncodedOutputStream`.
+
+## ASCII {#ASCII}
+Although the JSON standard does not reference [ASCII](http://en.wikipedia.org/wiki/ASCII), there are cases where we need to write 7-bit ASCII JSON for applications that cannot handle UTF-8. Since any Unicode character in JSON can be represented as a `\uXXXX` escape sequence, JSON can always be encoded in ASCII.
+
+Example of writing a UTF-8 DOM to ASCII JSON:
+```cpp
+using namespace merak::json;
+Document d; // UTF8<>
+// ...
+StringBuffer buffer;
+Writer<StringBuffer, Document::EncodingType, ASCII<> > writer(buffer);
+d.Accept(writer);
+std::cout << buffer.GetString();
+```
+
+ASCII can be used for input streams. If the input stream contains bytes greater than 127, a `kParseErrorStringInvalidEncoding` error will be thrown.
+
+ASCII *cannot* be used for memory (the encoding of `Document` or the target encoding of `Reader`), as it cannot represent Unicode code points.
+
+# Validation and Transcoding {#ValidationTranscoding}
+When Merak parses JSON, it can validate whether the input JSON is a valid sequence of the specified encoding. To enable this feature, add `kParseValidateEncodingFlag` to the `parseFlags` template parameter.
+
+If the input encoding differs from the output encoding, `Reader` and `Writer` will automatically transcode the text. In this case, `kParseValidateEncodingFlag` is unnecessary—decoding the input sequence is mandatory, and invalid sequences will fail to decode by default.
+
+## Transcoder {#Transcoder}
+Although Merak’s encoding features are designed for JSON parsing/generation, users can also "repurpose" them to transcode non-JSON strings.
+
+Example of transcoding a UTF-8 string to UTF-16:
+```cpp
+#include "merak/json/encodings.h"
+
+using namespace merak::json;
+
+const char* s = "..."; // UTF-8 string
+StringStream source(s);
+GenericStringBuffer<UTF16<> > target;
+
+bool hasError = false;
+while (source.Peek() != '\0')
+    if (!Transcoder<UTF8<>, UTF16<> >::Transcode(source, target)) {
+        hasError = true;
+        break;
+    }
+
+if (!hasError) {
+    const wchar_t* t = target.GetString();
+    // ...
+}
+```
+
+You can also use `AutoUTF` and corresponding streams to dynamically set the source/target encodings at runtime.

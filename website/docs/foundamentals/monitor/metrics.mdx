@@ -1,0 +1,289 @@
+# Metrics
+This section introduces monitoring metrics collectible by Prometheus, including `Counter`, `Gauge`, and `Histogram`.
+
+## tally::Counter
+As the name implies, it is used for accumulation with the operator `+`.
+```c++
+tally::Counter<int> value;
+value << 1 << 2 << 3 << -4;
+CHECK_EQ(2, value.get_value());
+
+tally::Counter<double> fp_value;  // may generate a warning
+fp_value << 1.0 << 2.0 << 3.0 << -4.0;
+CHECK_DOUBLE_EQ(2.0, fp_value.get_value());
+```
+`Counter<>` can be used with non-primitive types, provided that the corresponding type has at least overloaded `T operator+(T, T)`. An existing example is `std::string`; the code below concatenates strings:
+```c++
+// This is just proof-of-concept, don't use it for production code because it creates
+// numerous temporary strings which is inefficient. Use std::ostringstream instead.
+tally::Counter<std::string> concater;
+std::string str1 = "world";
+concater << "hello " << str1;
+CHECK_EQ("hello world", concater.get_value());
+```
+
+## tally::MaxerGauge
+Used to retrieve the maximum value, with the operator being `std::max`.
+```c++
+tally::MaxerGauge<int> value;
+value << 1 << 2 << 3 << -4;
+CHECK_EQ(3, value.get_value());
+```
+Since `MaxerGauge<>` uses `std::numeric_limits<T>::min()` as the identity value, it cannot be applied to generic types unless you specialize `std::numeric_limits<>` (and overload `operator<`—note, not `operator>`).
+
+## tally::MinerGauge
+Used to retrieve the minimum value, with the operator being `std::min`.
+```c++
+tally::MinerGauge<int> value;
+value << 1 << 2 << 3 << -4;
+CHECK_EQ(-4, value.get_value());
+```
+Since `MinerGauge<>` uses `std::numeric_limits<T>::max()` as the identity value, it cannot be applied to generic types unless you specialize `std::numeric_limits<>` (and overload `operator<`).
+
+## tally::AverageGauge
+Used to calculate the average value.
+```c++
+// For calculating average of numbers.
+// Example:
+//   AverageGauge latency;
+//   latency << 1 << 3 << 5;
+//   CHECK_EQ(3, latency.average());
+class AverageGauge : public Variable;
+```
+
+## tally::LatencyRecorder
+A counter dedicated to calculating latency and QPS (Queries Per Second). Simply input latency data to obtain latency / max_latency / QPS / count. The statistical window is specified by the last parameter; if omitted, it defaults to `tally_dump_interval` (not provided here).
+
+Note: `LatencyRecorder` does not inherit from `Variable` but is a combination of multiple `tally` components.
+```c++
+LatencyRecorder write_latency("table2_my_table_write");  // produces 4 variables:
+                                                         //   table2_my_table_write_latency
+                                                         //   table2_my_table_write_max_latency
+                                                         //   table2_my_table_write_qps
+                                                         //   table2_my_table_write_count
+// In your write function
+write_latency << the_latency_of_write;
+```
+
+## tally::Window
+Retrieves statistical values from a specified time window in the past. A `Window` cannot exist independently and must depend on an existing counter. The `Window` updates automatically and does not require explicit data input. For performance reasons, `Window` data is sampled from the original counter once per second, resulting in a maximum latency of 1 second for returned values in the worst case.
+```c++
+// Get data within a time window.
+// The time unit is fixed at 1 second.
+// Window relies on another tally, which must be constructed before this window and destroyed after it.
+// R must:
+// - have get_sampler() (thread-safety not required)
+// - define value_type and sampler_type
+template <typename R>
+class Window : public Variable;
+```
+
+### How to use tally::Window
+```c++
+tally::Counter<int> sum;
+tally::MaxerGauge<int> max_value;
+tally::IntRecorder avg_value;
+
+// sum_minute.get_value() returns the accumulated value of sum over the past 60 seconds.
+tally::Window<tally::Counter<int> > sum_minute(&sum, 60);
+
+// max_value_minute.get_value() returns the maximum value of max_value over the past 60 seconds.
+tally::Window<tally::MaxerGauge<int> > max_value_minute(&max_value, 60);
+
+// avg_value_minute.get_value() returns the average value of avg_value over the past 60 seconds.
+tally::Window<IntRecorder> avg_value_minute(&avg_value, 60);
+```
+
+## tally::PerSecond
+Retrieves the average per-second statistical value over a specified time window in the past. It is essentially the same as `Window`, except that the returned value is divided by the time window duration.
+```c++
+tally::Counter<int> sum;
+
+// sum_per_second.get_value() returns the average per-second accumulated value of sum over the past 60 seconds.
+// If the last time window parameter is omitted, it defaults to tally_dump_interval.
+tally::PerSecond<tally::Counter<int> > sum_per_second(&sum, 60);
+```
+**PerSecond is not always meaningful**
+
+The code above does not include `MaxerGauge` because dividing the maximum value over a time window by the window duration is meaningless.
+```c++
+tally::MaxerGauge<int> max_value;
+
+// Wrong! Dividing the maximum value by time is meaningless
+tally::PerSecond<tally::MaxerGauge<int> > max_value_per_second_wrong(&max_value);
+
+// Correct: Set the Window's time window to 1 second instead
+tally::Window<tally::MaxerGauge<int> > max_value_per_second(&max_value, 1);
+```
+
+### Difference with Window
+
+For example, to count memory changes over the past minute:
+- Using `Window<>`, the returned value means "memory increased by 18MB in the past minute".
+- Using `PerSecond<>`, the returned value means "memory increased by an average of 0.3MB per second in the past minute".
+
+The advantage of `Window` is that it provides exact values, making it suitable for small quantities (e.g., "number of errors in the past minute"). Using `PerSecond` for this case would return "0.0167 errors per second in the past minute", which is clearly less intuitive than "1 error in the past minute". Additionally, `Window` should be used for time-independent metrics. For example, to calculate CPU utilization over the past minute: use a `Counter` to accumulate both CPU time and real time, then use `Window` to get the CPU time and real time from the past minute, and divide the two to get the CPU utilization—this is time-independent, and using `PerSecond` would yield incorrect results.
+
+## tally::WindowEx
+Retrieves statistical values from a specified time window in the past. `WindowEx` is self-contained, does not depend on other counters, and requires explicit data input. For performance reasons, `WindowEx` aggregates data once per second, resulting in a maximum latency of 1 second for returned values in the worst case.
+```c++
+// Get data within a time window.
+// The time unit is fixed at 1 second.
+// WindowEx does not rely on other tally components.
+
+// R must:
+// - window_size must be a constant
+template <typename R, time_t window_size = 0>
+class WindowEx : public adapter::WindowExAdapter<R, adapter::WindowExType<R> > {
+public:
+    typedef adapter::WindowExAdapter<R, adapter::WindowExType<R> > Base;
+
+    WindowEx() : Base(window_size) {}
+
+    WindowEx(const base::StringPiece& name) : Base(window_size) {
+        this->expose(name);
+    }
+
+    WindowEx(const base::StringPiece& prefix,
+             const base::StringPiece& name)
+        : Base(window_size) {
+        this->expose_as(prefix, name);
+    }
+};
+```
+
+### How to use tally::WindowEx
+```c++
+const int window_size = 60;
+
+// sum_minute.get_value() returns the accumulated value over 60 seconds.
+// If the last window_size parameter is omitted, it defaults to tally_dump_interval.
+tally::WindowEx<tally::Counter<int>, window_size> sum_minute("sum_minute");
+sum_minute << 1 << 2 << 3;
+
+// max_minute.get_value() returns the maximum value over 60 seconds.
+// If the last window_size parameter is omitted, it defaults to tally_dump_interval.
+tally::WindowEx<tally::MaxerGauge<int>, window_size> max_minute("max_minute");
+max_minute << 1 << 2 << 3;
+
+// min_minute.get_value() returns the minimum value over 60 seconds.
+// If the last window_size parameter is omitted, it defaults to tally_dump_interval.
+tally::WindowEx<tally::MinerGauge<int>, window_size> min_minute("min_minute");
+min_minute << 1 << 2 << 3;
+
+// avg_minute.get_value() returns the average value over 60 seconds (returns tally::Stat).
+// If the last window_size parameter is omitted, it defaults to tally_dump_interval.
+tally::WindowEx<tally::IntRecorder, window_size> avg_minute("avg_minute");
+avg_minute << 1 << 2 << 3;
+// Get the 60-second average stat of avg_minute
+tally::Stat avg_stat = avg_minute.get_value();
+// Get the integer average
+int64_t avg_int = avg_stat.get_average_int();
+// Get the double-precision average
+double avg_double = avg_stat.get_average_double();
+```
+
+### Difference between tally::WindowEx and tally::Window
+
+- `tally::Window` cannot exist independently and must depend on an existing counter. It updates automatically without explicit data input; `window_size` is passed as a constructor parameter.
+  
+- `tally::WindowEx` is self-contained, does not depend on other counters, and requires explicit data input (easier to use). `window_size` is passed as a template parameter; if omitted, it defaults to `tally_dump_interval`.
+
+## tally::PerSecondEx
+Retrieves the average per-second statistical value over a specified time window in the past. It is essentially the same as `WindowEx`, except that the returned value is divided by the time window duration.
+```c++
+// Get data per second within a time window.
+// The only difference between PerSecondEx and WindowEx is that PerSecondEx divides
+// the aggregated data by the time window duration.
+
+// R must:
+// - window_size must be a constant
+template <typename R, time_t window_size = 0>
+class PerSecondEx : public adapter::WindowExAdapter<R, adapter::PerSecondExType<R> > {
+public:
+    typedef adapter::WindowExAdapter<R, adapter::PerSecondExType<R> > Base;
+
+    PerSecondEx() : Base(window_size) {}
+
+    PerSecondEx(const base::StringPiece& name) : Base(window_size) {
+        this->expose(name);
+    }
+
+    PerSecondEx(const base::StringPiece& prefix,
+                const base::StringPiece& name)
+        : Base(window_size) {
+        this->expose_as(prefix, name);
+    }
+};
+```
+
+### How to use tally::PerSecondEx
+
+```c++
+const int window_size = 60;
+
+// sum_per_second.get_value() returns the average per-second accumulated value over 60 seconds.
+// If the last window_size parameter is omitted, it defaults to tally_dump_interval.
+tally::PerSecondEx<tally::Counter<int>, window_size> sum_per_second("sum_per_second");
+sum_per_second << 1 << 2 << 3;
+```
+
+### Difference between tally::PerSecondEx and tally::WindowEx
+
+- `tally::PerSecondEx` retrieves the average per-second statistical value over a specified time window in the past. It is essentially the same as `WindowEx`, except that the returned value is divided by the time window duration.
+
+### Difference between tally::PerSecondEx and tally::PerSecond
+- `tally::PerSecond` cannot exist independently and must depend on an existing counter. It updates automatically without explicit data input; `window_size` is passed as a constructor parameter.
+- `tally::PerSecondEx` is self-contained, does not depend on other counters, and requires explicit data input (easier to use). `window_size` is passed as a template parameter; if omitted, it defaults to `tally_dump_interval`.
+
+## tally::Status
+Records and displays a value, with an additional `set_value` function.
+
+```c++
+// Display a rarely or periodically updated value.
+// Usage:
+//   tally::Status<int> foo_count1(17);
+//   foo_count1.expose("my_value");
+//
+//   tally::Status<int> foo_count2;
+//   foo_count2.set_value(17);
+//
+//   tally::Status<int> foo_count3("my_value", 17);
+//
+// Notice that Tp must be std::string or compatible with boost::atomic<Tp>.
+template <typename Tp>
+class Status : public Variable;
+```
+
+## tally::FuncGauge
+Displays values on demand. In some scenarios, we cannot call `set_value` or are unsure of the frequency to call it—instead, it is more appropriate to retrieve and display the value only when needed. Users implement this by passing a callback function for value retrieval.
+```c++
+// Display a value updated on demand. This is achieved by passing a user-defined callback
+// that is invoked to generate the value.
+// Example:
+//   int print_number(void* arg) {
+//      ...
+//      return 5;
+//   }
+//
+//   // number1 : 5
+//   tally::FuncGauge status1("number1", print_number, arg);
+//
+//   // foo_number2 : 5
+//   tally::FuncGauge status2(typeid(Foo), "number2", print_number, arg);
+template <typename Tp>
+class FuncGauge : public Variable;
+```
+Despite its simplicity, `FuncGauge` is one of the most useful `tally` components. This is because many statistical values already exist—we do not need to store them again, only retrieve them on demand. For example, the code below declares a `tally` that displays the process username on Linux:
+```c++
+static void get_username(std::ostream& os, void*) {
+    char buf[32];
+    if (getlogin_r(buf, sizeof(buf)) == 0) {
+        buf[sizeof(buf)-1] = '\0';
+        os << buf;
+    } else {
+        os << "unknown";
+    }
+}
+PassiveStatus<std::string> g_username("process_username", get_username, NULL);
+```

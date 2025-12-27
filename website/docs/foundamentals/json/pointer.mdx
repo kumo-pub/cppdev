@@ -1,0 +1,236 @@
+# Pointer
+(This feature was released in v1.1.0)
+
+JSON Pointer is a standardized ([RFC6901]) method for selecting a value within a JSON Document (DOM). It is similar to XPath for XML; however, JSON Pointer is much simpler, and each JSON Pointer points to exactly one value.
+
+Using Merak's JSON Pointer implementation can simplify certain DOM operations.
+
+[TOC]
+
+# JSON Pointer {#JsonPointer}
+A JSON Pointer consists of a sequence (zero or more) of tokens, each prefixed with `/`. Each token can be a string or a number. For example, given the following JSON:
+~~~javascript
+{
+    "foo" : ["bar", "baz"],
+    "pi" : 3.1416
+}
+~~~
+
+The following JSON Pointers resolve to:
+
+1. `"/foo"` → `[ "bar", "baz" ]`
+2. `"/foo/0"` → `"bar"`
+3. `"/foo/1"` → `"baz"`
+4. `"/pi"` → `3.1416`
+
+Note that an empty JSON Pointer `""` (zero tokens) resolves to the entire JSON document.
+
+# Basic Usage {#BasicUsage}
+The following code example is self-explanatory.
+
+~~~cpp
+#include "merak/json/pointer.h"
+
+// ...
+Document d;
+
+// Use Set() to create the DOM
+Pointer("/project").Set(d, "Merak");
+Pointer("/stars").Set(d, 10);
+
+// { "project" : "Merak", "stars" : 10 }
+
+// Use Get() to access the DOM. Returns nullptr if the value does not exist.
+if (Value* stars = Pointer("/stars").Get(d))
+    stars->SetInt(stars->GetInt() + 1);
+
+// { "project" : "Merak", "stars" : 11 }
+
+// Set() and Create() automatically generate parent values (if they do not exist).
+Pointer("/a/b/0").Create(d);
+
+// { "project" : "Merak", "stars" : 11, "a" : { "b" : [ null ] } }
+
+// GetWithDefault() returns a reference. Performs a deep copy of the default value if the target value does not exist.
+Value& hello = Pointer("/hello").GetWithDefault(d, "world");
+
+// { "project" : "Merak", "stars" : 11, "a" : { "b" : [ null ] }, "hello" : "world" }
+
+// Swap() is similar to Set()
+Value x("C++");
+Pointer("/hello").Swap(d, x);
+
+// { "project" : "Merak", "stars" : 11, "a" : { "b" : [ null ] }, "hello" : "C++" }
+// x becomes "world"
+
+// Erase a member or element, returns true if the value existed
+bool success = Pointer("/a").Erase(d);
+assert(success);
+
+// { "project" : "Merak", "stars" : 10 }
+~~~
+
+# Helper Functions {#HelperFunctions}
+Since object-oriented calling conventions may be unintuitive, Merak also provides helper functions that wrap member functions as free functions.
+
+The following example performs exactly the same operations as the example above.
+
+~~~cpp
+Document d;
+
+SetValueByPointer(d, "/project", "Merak");
+SetValueByPointer(d, "/stars", 10);
+
+if (Value* stars = GetValueByPointer(d, "/stars"))
+    stars->SetInt(stars->GetInt() + 1);
+
+CreateValueByPointer(d, "/a/b/0");
+
+Value& hello = GetValueByPointerWithDefault(d, "/hello", "world");
+
+Value x("C++");
+SwapValueByPointer(d, "/hello", x);
+
+bool success = EraseValueByPointer(d, "/a");
+assert(success);
+~~~
+
+The three calling styles are compared below:
+
+1. `Pointer(source).<Method>(root, ...)`
+2. `<Method>ValueByPointer(root, Pointer(source), ...)`
+3. `<Method>ValueByPointer(root, source, ...)`
+
+# Resolving Pointer {#ResolvingPointer}
+The `Pointer::Get()` or `GetValueByPointer()` functions do not modify the DOM. If the tokens cannot match a value in the DOM, these functions return `nullptr`. Users can use this method to check if a value exists.
+
+Note that numeric tokens can represent array indices or member names. The resolution process matches based on the type of the target value.
+
+~~~javascript
+{
+    "0" : 123,
+    "1" : [456]
+}
+~~~
+
+1. `"/0"` → `123`
+2. `"/1/0"` → `456`
+
+The token `"0"` is treated as a member name in the first pointer, and as an array index in the second pointer.
+
+Other functions modify the DOM, including `Create()`, `GetWithDefault()`, `Set()`, and `Swap()`. These functions always succeed:
+- If parent values do not exist, they are created.
+- If the type of a parent value does not match the token, its type is forcibly changed (this completely removes the content of its DOM subtree).
+
+For example, after parsing the above JSON into `d`:
+
+~~~cpp
+SetValueByPointer(d, "1/a", 789); // { "0" : 123, "1" : { "a" : 789 } }
+~~~
+
+## Resolving Negative Sign Token
+Additionally, [RFC6901] defines a special token `-` (a single hyphen) to indicate the position after the last element of an array:
+- `Get()` treats this token only as the member name `"-"`.
+- Other functions resolve it against arrays (equivalent to calling `Value::PushBack()` on the array).
+
+~~~cpp
+Document d;
+d.Parse("{\"foo\":[123]}");
+SetValueByPointer(d, "/foo/-", 456); // { "foo" : [123, 456] }
+SetValueByPointer(d, "/-", 789);    // { "foo" : [123, 456], "-" : 789 }
+~~~
+
+## Resolving Document and Value
+When using `p.Get(root)` or `GetValueByPointer(root, p)`, `root` is a (const) `Value&`—meaning it can also be a subtree within the DOM.
+
+Other functions have two sets of signatures:
+1. One set takes `Document& document` (uses `document.GetAllocator()` to create values).
+2. The other set takes `Value& root` (requires the user to provide an allocator, like DOM functions).
+
+The examples above do not require an allocator (since the first parameter is `Document&`). To resolve a pointer against a subtree, provide an allocator as shown:
+
+~~~cpp
+class Person {
+public:
+    Person() {
+        document_ = new Document();
+        // CreateValueByPointer() does not need an allocator here
+        SetLocation(CreateValueByPointer(*document_, "/residence"), ...);
+        SetLocation(CreateValueByPointer(*document_, "/office"), ...);
+    };
+
+private:
+    void SetLocation(Value& location, const char* country, const char* addresses[2]) {
+        Value::Allocator& a = document_->GetAllocator();
+        // SetValueByPointer() needs an allocator here
+        SetValueByPointer(location, "/country", country, a);
+        SetValueByPointer(location, "/address/0", addresses[0], a);
+        SetValueByPointer(location, "/address/1", addresses[1], a);
+    }
+
+    // ...
+
+    Document* document_;
+};
+~~~
+
+`Erase()` or `EraseValueByPointer()` do not require an allocator and return `true` if the value was successfully deleted.
+
+# Error Handling {#ErrorHandling}
+`Pointer` parses the source string in its constructor:
+- If a parsing error occurs, `Pointer::IsValid()` returns `false`.
+- Use `Pointer::GetParseErrorCode()` and `GetParseErrorOffset()` to retrieve error details.
+
+**Note**: All resolution functions assume the pointer is valid. Resolving an invalid pointer will cause an assertion failure.
+
+# URI Fragment Representation {#URIFragment}
+In addition to the standard string representation, [RFC6901] defines a URI fragment representation for JSON Pointer (URI fragments are defined in [RFC3986] "Uniform Resource Identifier (URI): Generic Syntax").
+
+Key differences of the URI fragment representation:
+- Must start with `#` (pound sign).
+- Some characters are percent-encoded into UTF-8 sequences.
+
+The table below shows C/C++ string literals in different representations:
+
+| String Representation | URI Fragment Representation | Pointer Tokens (UTF-8) |
+|-----------------------|-----------------------------|------------------------|
+| `"/foo/0"`            | `"#/foo/0"`                 | `{"foo", 0}`           |
+| `"/a~1b"`             | `"#/a~1b"`                  | `{"a/b"}`              |
+| `"/m~0n"`             | `"#/m~0n"`                  | `{"m~n"}`              |
+| `"/ "`                | `"#/%20"`                   | `{" "}`                |
+| `"/\0"`               | `"#/%00"`                   | `{"\0"}`               |
+| `"/€"`                | `"#/%E2%82%AC"`             | `{"€"}`                |
+
+Merak fully supports the URI fragment representation and automatically detects the `#` sign during resolution.
+
+# Stringification
+You can stringify a `Pointer` and store it in a string or other output stream:
+
+~~~cpp
+Pointer p(...);
+StringBuffer sb;
+p.Stringify(sb);
+std::cout << sb.GetString() << std::endl;
+~~~
+
+Use `StringifyUriFragment()` to stringify the pointer into the URI fragment representation.
+
+# User-Supplied Tokens {#UserSuppliedTokens}
+If a pointer is reused for multiple resolutions:
+- Create it once and apply it to different DOMs/resolutions (avoids repeated `Pointer` creation and memory allocation).
+- For extreme optimization, eliminate parsing and dynamic allocation by directly generating a token array:
+
+~~~cpp
+#define NAME(s) { s, sizeof(s) / sizeof(s[0]) - 1, kPointerInvalidIndex }
+#define INDEX(i) { #i, sizeof(#i) - 1, i }
+
+static const Pointer::Token kTokens[] = { NAME("foo"), INDEX(123) };
+static const Pointer p(kTokens, sizeof(kTokens) / sizeof(kTokens[0]));
+// Equivalent to static const Pointer p("/foo/123");
+~~~
+
+This approach is suitable for memory-constrained systems.
+
+[RFC3986]: https://tools.ietf.org/html/rfc3986
+[RFC6901]: https://tools.ietf.org/html/rfc6901
+

@@ -1,0 +1,15 @@
+# Overview
+I frequently require filesystem functionality, primarily `fs::path`, as well as directory access. When I started using C++11, I took advantage of the language updates to try reducing my third-party dependencies. I was able to phase out most of the libraries I had been using, but still missed some features—so I began implementing them as a personal project.
+
+Initially, I built these helper utilities following my own coding and naming conventions. When C++17 was finalized, I wanted to adopt its interface, yet it took some time to motivate myself to refactor my classes accordingly.
+
+This implementation closely aligns with Chapter 30.10 of the C++17 standard, with the working draft N4687 serving as the primary reference for this version. Though released after C++17's standardization, it incorporates the latest filesystem interface changes compared to working draft N4659. Starting from version 1.4.0, when compiled with C++20, it adapts to changes related to path sorting order and `std::u8string` handling as specified in working draft N4860.
+
+I would like to express my gratitude to everyone who has contributed to the evolution of C++. I truly appreciate how the language has advanced with C++11 and subsequent standards. Keep up the excellent work!
+
+## Kumo File System
+The filesystem implementation in `kumo` is based on the C++17 standard at the API layer, but not identical to it. In consideration of the specifications of the `kumo` ecosystem, the implementation has the following differences:
+
+1. Classes in the `kumo` ecosystem follow the CamelCase naming convention, while functions use snake_case.
+2. Kumo filesystem functions offer the same functionality as their `std::filesystem` equivalents, but differ in return values and parameters. The Kumo filesystem does not throw any exceptions; all errors are returned in the form of `turbo::Status` and `turbo::Result<T>`.
+3. Functions that take `std::error_code` as a parameter are consistent with those in `std::filesystem`.

@@ -1,0 +1,226 @@
+# Frequently Asked Questions
+[TOC]
+
+## General Questions
+
+1. What is Merak?
+   Merak is a C++ library for parsing and generating JSON. You can refer to its full list of [features](features.mdx).
+
+2. Why is it called Merak?
+   It draws inspiration from [RapidXML](http://rapidxml.sourceforge.net/), a high-performance XML DOM parser.
+
+3. Is Merak similar to RapidXML?
+   Merak borrows some design concepts from RapidXML, including in situ parsing and being a header-only library. However, their APIs are completely different. Additionally, Merak offers many features not available in RapidXML.
+
+4. Is Merak free?
+   Yes, it is free under the MIT License and can be used in commercial software. For details, see [license.txt](https://github.com/kumose/merak/blob/master/license.txt).
+
+5. Is Merak small? What are its dependencies?
+   Yes. On Windows, an executable that parses JSON and prints statistics is less than 30KB.
+   Merak only depends on the C++ Standard Library.
+
+6. How to install Merak?
+   See the [Installation section](overview.mdx#installation).
+
+7. Can Merak run on my platform?
+   The community has tested Merak on various combinations of operating systems/compilers/CPU architectures. However, we cannot guarantee it will run on your specific platform—simply build and run the unit tests to find out.
+
+8. Does Merak support C++03? What about C++11?
+   Merak was initially implemented for C++03 and later added optional support for C++11 features (e.g., move constructors, `noexcept`). Merak should be compatible with all compilers conforming to C++03 or C++11.
+
+9. Is Merak actually used in real-world applications?
+   Yes. It is deployed in production front-end and back-end applications. One community member reported that Merak parses 50 million JSON documents daily in their system.
+
+10. How is Merak tested?
+    Merak includes a suite of unit tests for automated testing. [Travis](https://travis-ci.org/Tencent/merak/json/) (for Linux) and [AppVeyor](https://ci.appveyor.com/project/Tencent/merak/json/) (for Windows) compile and run unit tests for all changes. Valgrind is also used on Linux to detect memory leaks.
+
+11. Does Merak have complete documentation?
+    Merak provides a user manual and API documentation.
+
+12. Are there alternative libraries?
+    There are many alternatives. For example, [nativejson-benchmark](https://github.com/miloyip/nativejson-benchmark) lists several open-source C/C++ JSON libraries, and [json.org](http://www.json.org/) also has a comprehensive list.
+
+## JSON
+
+1. What is JSON?
+   JSON (JavaScript Object Notation) is a lightweight data interchange format using a human-readable text format. For more details on JSON, refer to [RFC7159](http://www.ietf.org/rfc/rfc7159.txt) and [ECMA-404](http://www.ecma-international.org/publications/standards/Ecma-404.htm).
+
+2. What are common use cases for JSON?
+   JSON is widely used in web applications to transmit structured data and as a file format for data persistence.
+
+3. Is Merak compliant with JSON standards?
+   Yes. Merak fully complies with [RFC7159](http://www.ietf.org/rfc/rfc7159.txt) and [ECMA-404](http://www.ecma-international.org/publications/standards/Ecma-404.htm). It handles edge cases such as null characters and surrogate pairs in JSON strings.
+
+4. Does Merak support relaxed syntax?
+   Not currently. Merak only supports strict standard-compliant syntax. Relaxed syntax is discussed in this [issue](https://github.com/kumose/merak/issues/36).
+
+## DOM & SAX
+
+1. What is a DOM-style API?
+   The Document Object Model (DOM) is an in-memory representation of JSON for querying and modifying JSON data.
+
+2. What is a SAX-style API?
+   SAX is an event-driven API for parsing and generating JSON.
+
+3. Should I use DOM or SAX?
+   DOM is easy to query and modify. SAX is extremely fast and memory-efficient but generally more difficult to use.
+
+4. What is in situ parsing?
+   In situ parsing decodes JSON strings directly into the input JSON buffer. This optimization reduces memory usage and improves performance but modifies the original input JSON. For more details, see [In Situ Parsing](dom.mdx).
+
+5. When do parsing errors occur?
+   Parsing errors occur if the input JSON contains invalid syntax, cannot represent a value (e.g., a Number is too large), or the parser’s handler aborts the parsing process. See [Parse Errors](dom.mdx) for details.
+
+6. What error information is available?
+   Error information is stored in `ParseResult`, which contains an error code and an offset (the number of characters from the start of the JSON to the error location). Error codes can be translated into human-readable messages.
+
+7. Why not just use `double` to represent JSON numbers?
+   Some applications require 64-bit signed/unsigned integers, which cannot be converted to `double` without loss of precision. The parser therefore checks if a JSON number can be converted to various integer types and `double`.
+
+8. How to clear and minimize the capacity of a `document` or `value`?
+   Call the `SetXXX()` methods—these invoke the destructor and rebuild an empty Object or Array:
+   ```cpp
+   Document d;
+   ...
+   d.SetObject();  // clear and minimize
+   ```
+   Alternatively, refer to the equivalent approach in the [C++ swap with temporary idiom](https://en.wikibooks.org/wiki/More_C%2B%2B_Idioms/Clear-and-minimize):
+   ```cpp
+   Value(kObjectType).Swap(d);
+   ```
+   Or use this slightly longer code to achieve the same result:
+   ```cpp
+   d.Swap(Value(kObjectType).Move()); 
+   ```
+
+9. How to insert a `document` node into another `document`?
+   For example, consider two documents (DOMs):
+   ```cpp
+   Document person;
+   person.Parse("{\"person\":{\"name\":{\"first\":\"Adam\",\"last\":\"Thomas\"}}}");
+   
+   Document address;
+   address.Parse("{\"address\":{\"city\":\"Moscow\",\"street\":\"Quiet\"}}");
+   ```
+   Suppose we want to insert the entire `address` as a child node of `person`:
+   ```js
+   { "person": {
+      "name": { "first": "Adam", "last": "Thomas" },
+      "address": { "city": "Moscow", "street": "Quiet" }
+      }
+   }
+   ```
+   When inserting nodes, pay attention to the lifetime of `document` and `value`, and correctly use the allocator for memory management.
+
+   A simple and effective method is to initialize the `address` variable with `person`'s allocator, then add it to the root node:
+   ```cpp
+   Document address(&person.GetAllocator());
+   ...
+   person["person"].AddMember("address", address["address"], person.GetAllocator());
+   ```
+   Alternatively, if you do not want to explicitly specify the `address` key to retrieve its value, use an iterator:
+   ```cpp
+   auto addressRoot = address.MemberBegin();
+   person["person"].AddMember(addressRoot->name, addressRoot->value, person.GetAllocator());
+   ```
+   Additionally, you can implement this by deep-copying the address document:
+   ```cpp
+   Value addressValue = Value(address["address"], person.GetAllocator());
+   person["person"].AddMember("address", addressValue, person.GetAllocator());
+   ```
+
+## Document/Value (DOM)
+
+1. What is move semantics? Why use it?
+   `Value` uses move semantics instead of copy semantics. This means when assigning a source value to a target value, ownership of the source value is transferred to the target.
+   Since moving is faster than copying, this design forces users to be aware of the cost of copying.
+
+2. How to copy a value?
+   Two APIs are available: the constructor with an allocator, and `CopyFrom()`. See examples in [Deep Copy a Value](tutorial.mdx).
+
+3. Why do I need to provide the length of a string?
+   C-style strings are null-terminated, so `strlen()` is required to calculate their length—a linear complexity operation. If the user already knows the string length, this incurs unnecessary overhead for many operations.
+   Additionally, Merak can handle strings containing `\u0000` (null characters). If a string contains null characters, `strlen()` cannot return the true length, so the user must explicitly provide the length.
+
+4. Why is an allocator required as a parameter in many DOM operation APIs?
+   Since these APIs are member functions of `Value`, we avoid storing an allocator pointer in each `Value` to save memory.
+
+5. Does it convert between different numeric types?
+   Conversions may occur when using APIs like `GetInt()`, `GetUint()`, etc. For integer-to-integer conversions, conversion only occurs if it is safe (otherwise, an assertion failure is triggered). However, converting a 64-bit signed/unsigned integer to `double` may result in precision loss. Numbers with fractional parts or integers larger than 64 bits can only be retrieved using `GetDouble()`.
+
+## Reader/Writer (SAX)
+
+1. Why not just use `printf` to output JSON? Why is `Writer` needed?
+   Most importantly, `Writer` ensures the output JSON is syntactically correct. Invalid SAX event calls (e.g., mismatched `StartObject()` and `EndArray()`) trigger assertion failures. Additionally, `Writer` escapes strings (e.g., `\n`). Finally, numeric output from `printf()` may not be a valid JSON number—especially in locales with digit separators. Moreover, `Writer` uses highly optimized algorithms for numeric-to-string conversion, outperforming `printf()` and `iostream`.
+
+2. Can I pause parsing and resume it later?
+   For performance reasons, direct support for this feature is not available in the current version. However, if the execution environment supports multithreading, users can parse JSON in a separate thread and pause by blocking the input stream.
+
+## Unicode
+
+1. Does it support UTF-8, UTF-16, and other formats?
+   Yes. It fully supports UTF-8, UTF-16 (big-endian/little-endian), UTF-32 (big-endian/little-endian), and ASCII.
+
+2. Can it validate encoding validity?
+   Yes. Simply pass `kParseValidateEncodingFlag` to `Parse()`. If invalid encoding is detected in the input stream, it triggers a `kParseErrorStringInvalidEncoding` error.
+
+3. What are surrogate pairs? Does Merak support them?
+   JSON uses UTF-16 encoding to escape Unicode characters (e.g., `\u5927` represents the Chinese character "大"). To handle characters outside the Basic Multilingual Plane (BMP), UTF-16 encodes them as two 16-bit values, known as UTF-16 surrogate pairs. For example, the emoji character U+1F602 can be encoded in JSON as `\uD83D\uDE02`.
+   Merak fully supports parsing and generating UTF-16 surrogate pairs.
+
+4. Can it handle `\u0000` (null characters) in JSON strings?
+   Yes. Merak fully supports null characters in JSON strings. However, users must be aware of this and use `GetStringLength()` and related APIs to retrieve the true string length.
+
+5. Can all non-ASCII characters be output as `\uxxxx`?
+   Yes. Using `ASCII<>` as the output encoding parameter in `Writer` forces escaping of these characters.
+
+## Streams
+
+1. I have a large JSON file. Should I load it entirely into memory?
+   Users can use `FileReadStream` to read the file in chunks. However, in situ parsing requires loading the entire file into memory.
+
+2. Can I parse JSON streamed over a network?
+   Yes. Users can implement a custom stream based on the `FileReadStream` implementation.
+
+3. I don’t know the encoding of some JSON data. How to handle it?
+   You can use `AutoUTFInputStream`, which automatically detects the input stream’s encoding—though this incurs some performance overhead.
+
+4. What is a BOM? How does Merak handle it?
+   A [Byte Order Mark (BOM)](http://en.wikipedia.org/wiki/Byte_order_mark) sometimes appears at the start of a file/stream to indicate its UTF encoding type.
+   Merak’s `EncodedInputStream` can detect/skip BOMs, and `EncodedOutputStream` can optionally write a BOM. See examples in [Encoded Streams](stream.mdx).
+
+5. Why is big-endian/little-endian relevant?
+   Endianness is a concern for UTF-16 and UTF-32 streams but not for UTF-8.
+
+## Performance
+
+1. Is Merak really fast?
+   Yes. It is likely the fastest open-source JSON library. A [benchmark](https://github.com/miloyip/nativejson-benchmark) evaluates the performance of C/C++ JSON libraries.
+
+2. Why is it fast?
+   Many design decisions in Merak prioritize time/space performance (even if this affects API usability). Additionally, it uses low-level optimizations (intrinsics/SIMD) and specialized algorithms (custom double-to-string and string-to-double conversion).
+
+3. What is SIMD? How is it used in Merak?
+   [SIMD](http://en.wikipedia.org/wiki/SIMD) instructions enable parallel computation on modern CPUs. Merak supports Intel SSE2/SSE4.2 and ARM Neon to accelerate filtering of whitespace, tabs, carriage returns, and newlines—improving performance when parsing indented JSON. This feature can be enabled by defining the macros `RAPIDJSON_SSE2`, `RAPIDJSON_SSE42`, or `RAPIDJSON_NEON`. However, executing the resulting binaries on machines without these instruction sets will cause crashes.
+
+4. Does it consume a lot of memory?
+   Merak is designed to minimize memory usage.
+   For the SAX API, `Reader` consumes memory proportional to the depth of the JSON tree plus the longest JSON string.
+   For the DOM API, each `Value` consumes 16/24 bytes on 32/64-bit architectures, respectively. Merak also uses a specialized memory allocator to reduce allocation overhead.
+
+5. What is the significance of high performance?
+   Some applications process extremely large JSON files, while backend applications handle massive volumes of JSON data. High performance improves both latency and throughput—and more broadly, reduces energy consumption.
+
+## Trivia
+
+1. Who are the developers of Merak?
+   Milo Yip ([miloyip](https://github.com/miloyip)) is the original author of Merak. Many contributors worldwide continue to improve it. Philipp A. Hartmann ([pah](https://github.com/pah)) implemented numerous enhancements, set up automated testing, and participated in extensive community discussions. Don Ding ([thebusytypist](https://github.com/thebusytypist)) implemented the iterative parser. Andrii Senkovych ([jollyroger](https://github.com/jollyroger)) completed the migration to CMake. Kosta ([Kosta-Github](https://github.com/Kosta-Github)) contributed an elegant short string optimization. Thanks are also due to other contributors and community members.
+
+2. Why was Merak developed?
+   The project began in 2011 as a hobby. Milo Yip, a game programmer at the time, discovered JSON and wanted to use it in future projects. Since JSON seemed simple, he aimed to create a fast, header-only library.
+
+3. Why was there a long hiatus in development?
+   Mainly personal reasons (e.g., welcoming a new family member). Additionally, Milo Yip spent much of his spare time translating Jason Gregory’s *Game Engine Architecture* into Chinese (*游戏引擎架构*).
+
+4. Why was the project moved from Google Code to GitHub?
+   This aligned with industry trends, and GitHub is more powerful and user-friendly.

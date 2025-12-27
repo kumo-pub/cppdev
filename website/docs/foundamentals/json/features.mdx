@@ -1,0 +1,94 @@
+# Features
+
+## Overall
+* Cross-platform
+  * Compilers: Visual Studio, GCC, Clang, etc.
+  * Architectures: x86, x64, ARM, etc.
+  * Operating Systems: Windows, Mac OS X, Linux, iOS, Android, etc.
+* Easy to install
+  * Header-only library. Simply copy the header files to your project.
+* Self-contained with minimal dependencies
+  * No reliance on STL, BOOST, or other libraries.
+  * Only depends on `<cstdio>`, `<cstdlib>`, `<cstring>`, `<inttypes.h>`, `<new>`, `<stdint.h>`.
+* No use of C++ exceptions or RTTI
+* High performance
+  * Uses templates and inline functions to reduce function call overhead.
+  * Internally optimized Grisu2 and floating-point parsing implementations.
+  * Optional SSE2/SSE4.2 support.
+
+## Standard Compliance
+* Merak is fully compliant with the RFC4627/ECMA-404 standards.
+* Supports JSON Pointer (RFC6901).
+* Supports JSON Schema Draft v4.
+* Supports Unicode surrogate pairs.
+* Supports null characters (`"\u0000"`)
+  * For example, it can elegantly parse and handle `["Hello\u0000World"]`. Provides APIs to read/write string lengths.
+* Supports optional relaxed syntax
+  * Single-line (`// ...`) and multi-line (`/* ... */`) comments (`kParseCommentsFlag`).
+  * Trailing commas before the end of objects and arrays (`kParseTrailingCommasFlag`).
+  * `NaN`, `Inf`, `Infinity`, `-Inf`, and `-Infinity` as `double` values (`kParseNanAndInfFlag`).
+* [NPM compatible](https://github.com/kumose/merak/blob/master/doc/npm.md).
+
+## Unicode
+* Supports UTF-8, UTF-16, and UTF-32 encodings (including little-endian and big-endian).
+  * These encodings are used for input/output streams and in-memory representation.
+* Supports automatic encoding detection from input streams.
+* Built-in support for encoding transcoding.
+  * For example, you can read a UTF-8 file and have Merak transcode JSON strings to a UTF-16 DOM.
+* Built-in support for encoding validation.
+  * For example, you can read a UTF-8 file and have Merak check if all JSON strings are valid UTF-8 byte sequences.
+* Supports custom character types.
+  * Default character types: `char` for UTF-8, `wchar_t` for UTF-16, `uint32_t` for UTF-32.
+* Supports custom encodings.
+
+## API Styles
+* SAX (Simple API for XML)-style API
+  * Similar to [SAX](http://en.wikipedia.org/wiki/Simple_API_for_XML), Merak provides an event-based sequential access parser API (`merak::json::GenericReader`). Merak also offers a generator API (`merak::json::Writer`) that processes the same set of events.
+* DOM (Document Object Model)-style API
+  * Similar to the [DOM](http://en.wikipedia.org/wiki/Document_Object_Model) for HTML/XML, Merak can parse JSON into a DOM representation (`merak::json::GenericDocument`) for easy manipulation. The DOM can be converted (stringified) back to JSON if needed.
+  * The DOM-style API (`merak::json::GenericDocument`) is actually implemented using the SAX-style API (`merak::json::GenericReader`). SAX is faster, but DOM is sometimes easier to use—users can choose based on their needs.
+
+## Parsing
+* Recursive (default) and iterative parsers
+  * The recursive parser is faster but may cause stack overflow in extreme cases.
+  * The iterative parser uses a custom stack to maintain parsing state.
+* Supports in situ parsing.
+  * Parses JSON string values directly into the original JSON buffer, then has the DOM point to those strings.
+  * Faster than regular parsing: no memory allocation for strings, no copying (if strings have no escape characters), and cache-friendly.
+* For JSON numeric types, supports 32-bit/64-bit signed/unsigned integers and `double`.
+* Error handling
+  * Supports detailed parse error codes.
+  * Supports localized error messages.
+
+## DOM (Document)
+* Merak checks numeric ranges during type conversion.
+* String literal optimization
+  * Stores only pointers, no copying.
+* Short string optimization
+  * Stores short strings within `Value` without additional allocation.
+  * For UTF-8 strings: up to 11 characters on 32-bit architectures, 21 characters on 64-bit (13 characters on x86-64).
+* Optional support for `std::string` (define `RAPIDJSON_HAS_STDSTRING=1`).
+
+## Generation
+* Supports `merak::json::PrettyWriter` to add line breaks and indentation.
+
+## Input/Output Streams
+* Supports `merak::json::GenericStringBuffer` to store output JSON in a string.
+* Supports `merak::json::FileReadStream` and `merak::json::FileWriteStream` for input/output using `FILE` objects.
+* Supports custom input/output streams.
+
+## Memory
+* Minimizes DOM memory overhead.
+  * On most 32/64-bit machines, each JSON value occupies only 16 or 20 bytes (excluding strings).
+* Supports a fast default allocator.
+  * It is a stack-based allocator (sequential allocation, no individual deallocation—ideal for parsing).
+  * Users can also provide a pre-allocated buffer (enabling parsing of multiple JSONs without CRT allocation in some cases).
+* Supports the standard CRT (C-runtime) allocator.
+* Supports custom allocators.
+
+## Others
+* Optional support for some C++11 features
+  * Rvalue references
+  * `noexcept` specifier
+  * Range-based for loops
+  

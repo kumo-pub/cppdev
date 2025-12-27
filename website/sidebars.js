@@ -36,7 +36,7 @@ const sidebars = {
           "label": "Performance Testing and Unit Testing",
           link: {
             "type": "doc",
-            "id": "testing/index",
+            "id": "foundamentals/testing/index",
           },
           "items": [
             {
@@ -48,22 +48,22 @@ const sidebars = {
                 "title": "doctest Unit Testing"
               },
               "items": [
-                "testing/doct/overview",
-                "testing/doct/tutorial",
-                "testing/doct/assertions",
-                "testing/doct/testcases",
-                "testing/doct/parameterized-tests",
-                "testing/doct/logging",
-                "testing/doct/commandline",
-                "testing/doct/main",
-                "testing/doct/configuration",
-                "testing/doct/stringification",
-                "testing/doct/reporters",
-                "testing/doct/extensions",
-                "testing/doct/faq",
-                "testing/doct/build-systems",
-                "testing/doct/benchmarks",
-                "testing/doct/features"
+                "foundamentals/testing/doct/overview",
+                "foundamentals/testing/doct/tutorial",
+                "foundamentals/testing/doct/assertions",
+                "foundamentals/testing/doct/testcases",
+                "foundamentals/testing/doct/parameterized-tests",
+                "foundamentals/testing/doct/logging",
+                "foundamentals/testing/doct/commandline",
+                "foundamentals/testing/doct/main",
+                "foundamentals/testing/doct/configuration",
+                "foundamentals/testing/doct/stringification",
+                "foundamentals/testing/doct/reporters",
+                "foundamentals/testing/doct/extensions",
+                "foundamentals/testing/doct/faq",
+                "foundamentals/testing/doct/build-systems",
+                "foundamentals/testing/doct/benchmarks",
+                "foundamentals/testing/doct/features"
               ]
             },
             {
@@ -75,24 +75,24 @@ const sidebars = {
                 "title": "Kumo test"
               },
               "items": [
-                "testing/gt/platforms",
-                "testing/gt/quickstart-bazel",
-                "testing/gt/quickstart-cmake",
-                "testing/gt/primer",
-                "testing/gt/advanced",
-                "testing/gt/gmock_for_dummies",
-                "testing/gt/gmock_cook_book",
-                "testing/gt/gmock_cheat_sheet",
-                "testing/gt/reference/testing",
-                "testing/gt/reference/mocking",
-                "testing/gt/reference/assertions",
-                "testing/gt/reference/matchers",
-                "testing/gt/reference/actions",
-                "testing/gt/faq",
-                "testing/gt/gmock_faq",
-                "testing/gt/samples",
-                "testing/gt/pkgconfig",
-                "testing/gt/community_created_documentation"
+                "foundamentals/testing/gt/platforms",
+                "foundamentals/testing/gt/quickstart-bazel",
+                "foundamentals/testing/gt/quickstart-cmake",
+                "foundamentals/testing/gt/primer",
+                "foundamentals/testing/gt/advanced",
+                "foundamentals/testing/gt/gmock_for_dummies",
+                "foundamentals/testing/gt/gmock_cook_book",
+                "foundamentals/testing/gt/gmock_cheat_sheet",
+                "foundamentals/testing/gt/reference/testing",
+                "foundamentals/testing/gt/reference/mocking",
+                "foundamentals/testing/gt/reference/assertions",
+                "foundamentals/testing/gt/reference/matchers",
+                "foundamentals/testing/gt/reference/actions",
+                "foundamentals/testing/gt/faq",
+                "foundamentals/testing/gt/gmock_faq",
+                "foundamentals/testing/gt/samples",
+                "foundamentals/testing/gt/pkgconfig",
+                "foundamentals/testing/gt/community_created_documentation"
               ]
             },
             {
@@ -100,19 +100,19 @@ const sidebars = {
               "label": "benchmark",
               link: {
                 "type": "doc",
-                "id": "testing/benchmark/index",
+                "id": "foundamentals/testing/benchmark/index",
               },
               "items": [
-                "testing/benchmark/AssemblyTests",
-                "testing/benchmark/dependencies",
-                "testing/benchmark/perf_counters",
-                "testing/benchmark/platform_specific_build_instructions",
-                "testing/benchmark/python_bindings",
-                "testing/benchmark/random_interleaving",
-                "testing/benchmark/reducing_variance",
-                "testing/benchmark/releasing",
-                "testing/benchmark/tools",
-                "testing/benchmark/user_guide",
+                "foundamentals/testing/benchmark/AssemblyTests",
+                "foundamentals/testing/benchmark/dependencies",
+                "foundamentals/testing/benchmark/perf_counters",
+                "foundamentals/testing/benchmark/platform_specific_build_instructions",
+                "foundamentals/testing/benchmark/python_bindings",
+                "foundamentals/testing/benchmark/random_interleaving",
+                "foundamentals/testing/benchmark/reducing_variance",
+                "foundamentals/testing/benchmark/releasing",
+                "foundamentals/testing/benchmark/tools",
+                "foundamentals/testing/benchmark/user_guide",
               ]
             },
           ]
@@ -122,7 +122,7 @@ const sidebars = {
           label: 'Log Section',
           link: {
             "type": "doc",
-            "id": "log/index",
+            "id": "foundamentals/log/index",
           },
           items: [
             {
@@ -134,9 +134,9 @@ const sidebars = {
                 "title": "starts"
               },
               "items": [
-                "log/usage",
-                "log/build",
-                "log/packages"
+                "foundamentals/log/usage",
+                "foundamentals/log/build",
+                "foundamentals/log/packages"
               ]
             },
             {
@@ -148,16 +148,16 @@ const sidebars = {
                 "title": "Log Tutorial"
               },
               "items": [
-                "log/logging",
-                "log/sinks",
-                "log/builtin_sinks",
-                "log/flags"
+                "foundamentals/log/logging",
+                "foundamentals/log/sinks",
+                "foundamentals/log/builtin_sinks",
+                "foundamentals/log/flags"
               ]
             }
 
           ],
         },
-        "time/time",
+        "foundamentals/time",
         {
           "type": "category",
           "label": "Standardized Errors and Error Return Values",
@@ -167,8 +167,8 @@ const sidebars = {
             "title": "Standardized Errors and Error Return Values"
           },
           "items": [
-            "status/status-codes",
-            "status/status"
+            "foundamentals/status/status-codes",
+            "foundamentals/status/status"
           ]
         },
         {
@@ -176,17 +176,383 @@ const sidebars = {
           "label": "strings operations",
           link: {
             "type": "doc",
-            "id": "strings/index",
+            "id": "foundamentals/strings/index",
           },
           "items": [
-            "strings/fmt",
-            "strings/split",
-            "strings/strcat",
-            "strings/join",
-            "strings/substitution"
+            "foundamentals/strings/fmt",
+            "foundamentals/strings/split",
+            "foundamentals/strings/strcat",
+            "foundamentals/strings/join",
+            "foundamentals/strings/substitution"
           ]
         },
-        "flags/flags",
+        "foundamentals/flags",
+        {
+          "type": "category",
+          "label": "Codec",
+          link: {
+            "type": "doc",
+            "id": "foundamentals/codec/index",
+          },
+          "items": [
+            "foundamentals/codec/base64",
+          ]
+        },
+        "foundamentals/format/index",
+        {
+          "type": "category",
+          "label": "Map Containers",
+          link: {
+            "type": "doc",
+            "id": "foundamentals/map/index",
+          },
+          "items": [
+            "foundamentals/map/turbo_hash",
+            "foundamentals/map/concurrent_hash_map",
+            "foundamentals/map/pmap",
+            "foundamentals/map/benchmark",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "Compression",
+          link: {
+            "type": "doc",
+            "id": "foundamentals/compress/index",
+          },
+          "items": [
+            "foundamentals/compress/melon",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "Fiber And Future",
+          link: {
+            "type": "doc",
+            "id": "foundamentals/fibers/index",
+          },
+          "items": [
+            "foundamentals/fibers/futures",
+            "foundamentals/fibers/std-future",
+            "foundamentals/fibers/execution_queue",
+            "foundamentals/fibers/kthread_schedule",
+            "foundamentals/fibers/kthread_or_not",
+            "foundamentals/fibers/faq",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "monitor",
+          link: {
+            "type": "doc",
+            "id": "foundamentals/monitor/index",
+          },
+          "items": [
+            "foundamentals/monitor/var",
+            "foundamentals/monitor/metrics",
+            "foundamentals/monitor/sys"
+          ]
+        },
+        {
+          "type": "category",
+          "label": "filesystem",
+          link: {
+            "type": "doc",
+            "id": "foundamentals/filesystem/index",
+          },
+          "items": [
+            "foundamentals/filesystem/fs",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "json",
+          link: {
+            "type": "doc",
+            "id": "foundamentals/json/index",
+          },
+          "items": [
+            "foundamentals/json/overview",
+            "foundamentals/json/features",
+            "foundamentals/json/tutorial",
+            "foundamentals/json/pointer",
+            "foundamentals/json/stream",
+            "foundamentals/json/encoding",
+            "foundamentals/json/dom",
+            "foundamentals/json/sax",
+            "foundamentals/json/schema",
+            "foundamentals/json/internals",
+            "foundamentals/json/performance",
+            "foundamentals/json/protobuf"
+          ]
+        },
+      ]
+    },
+    {
+      "type": "category",
+      "label": "rpc",
+      link: {
+        "type": "doc",
+        "id": "rpc/index",
+      },
+      "items": [
+        "rpc/grpc",
+        "rpc/brpc",
+        "rpc/acl",
+        "rpc/httplib",
+        "rpc/protobuf",
+        "rpc/flatbuffers",
+        "rpc/shark",
+        {
+          "type": "category",
+          "label": "krpc",
+          link: {
+            "type": "doc",
+            "id": "rpc/krpc/index",
+          },
+          "items": [
+            "rpc/krpc/getting_started",
+            "rpc/krpc/server",
+            "rpc/krpc/http_service",
+            "rpc/krpc/thrift",
+            "rpc/krpc/cpu_profiler",
+            "rpc/krpc/heap_profiler",
+            "rpc/krpc/contention_profiler",
+            "rpc/krpc/dummy_server",
+            "rpc/krpc/rpcz",
+            "rpc/krpc/thread_local",
+            "rpc/krpc/json2pb",
+            "rpc/krpc/threading_overview",
+            "rpc/krpc/atomic_instructions",
+            "rpc/krpc/flags",
+            "rpc/krpc/io",
+            "rpc/krpc/streaming_rpc",
+            "rpc/krpc/endpoint",
+            "rpc/krpc/kumo_std",
+            "rpc/krpc/client",
+            "rpc/krpc/circuit_breaker",
+            "rpc/krpc/connections",
+            "rpc/krpc/lalb",
+            "rpc/krpc/consistent_hashing",
+            "rpc/krpc/http_client",
+            "rpc/krpc/http_derivatives",
+            "rpc/krpc/combo_channel",
+            "rpc/krpc/memcache_client",
+            "rpc/krpc/redis_client",
+            "rpc/krpc/auto_concurrency_limiter",
+            "rpc/krpc/server_debugging",
+          ]
+        },
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Retrieve",
+      link: {
+        "type": "doc",
+        "id": "retrieve/index",
+      },
+      "items": [
+        {
+          "type": "category",
+          "label": "bitmap",
+          link: {
+            "type": "doc",
+            "id": "retrieve/bitmap/index",
+          },
+          "items": [
+            "retrieve/bitmap/roaring",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "vector",
+          link: {
+            "type": "doc",
+            "id": "retrieve/vector/index",
+          },
+          "items": [
+            "retrieve/vector/faiss",
+            "retrieve/vector/hnswlib",
+            "retrieve/vector/nmslib",
+            "retrieve/vector/ngt",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "trie",
+          link: {
+            "type": "doc",
+            "id": "retrieve/trie/index",
+          },
+          "items": [
+            "retrieve/trie/darts",
+            "retrieve/trie/tsl",
+            "retrieve/trie/marisa",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "nlp",
+          link: {
+            "type": "doc",
+            "id": "retrieve/nlp/index",
+          },
+          "items": [
+            "retrieve/nlp/hadar",
+            "retrieve/nlp/jieba",
+            "retrieve/nlp/sentencepiece",
+          ]
+        },
+      ]
+    },
+    {
+      "type": "category",
+      "label": "store",
+      link: {
+        "type": "doc",
+        "id": "store/index",
+      },
+      "items": [
+        {
+          "type": "category",
+          "label": "kv",
+          link: {
+            "type": "doc",
+            "id": "store/kv/index",
+          },
+          "items": [
+            "store/kv/rocksdb",
+            "store/kv/leveldb",
+            "store/kv/lmdb",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "cloud",
+          link: {
+            "type": "doc",
+            "id": "store/cloud/index",
+          },
+          "items": [
+            "store/cloud/aws",
+            "store/cloud/azure",
+            "store/cloud/gcs",
+            "store/cloud/hdfs",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "format",
+          link: {
+            "type": "doc",
+            "id": "store/format/index",
+          },
+          "items": [
+            "store/format/parquet",
+            "store/format/hdf5",
+            "store/format/ocr",
+            "store/format/npy",
+          ]
+        },
+      ]
+    },
+    {
+      "type": "category",
+      "label": "IR",
+      link: {
+        "type": "doc",
+        "id": "ir/index",
+      },
+      "items": [
+        "ir/pegtl",
+        "ir/bison-flex",
+        "ir/antlr",
+        "ir/ast",
+        "ir/llvm",
+      ]
+    },
+    {
+      "type": "category",
+      "label": "advance",
+      link: {
+        "type": "doc",
+        "id": "advance/index",
+      },
+      "items": [
+        {
+          "type": "category",
+          "label": "ml",
+          link: {
+            "type": "doc",
+            "id": "advance/ml/index",
+          },
+          "items": [
+            "advance/ml/tensorflow",
+            "advance/ml/pytorch",
+            "advance/ml/onnx",
+            "advance/ml/tvm",
+            "advance/ml/codon",
+            "advance/ml/ggml",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "compute",
+          link: {
+            "type": "doc",
+            "id": "advance/compute/index",
+          },
+          "items": [
+            "advance/compute/pollux",
+            "advance/compute/arrow",
+            "advance/compute/velox",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "gpu",
+          link: {
+            "type": "doc",
+            "id": "advance/gpu/index",
+          },
+          "items": [
+            "advance/gpu/cudnn",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "simd",
+          link: {
+            "type": "doc",
+            "id": "advance/simd/index",
+          },
+          "items": [
+            "advance/simd/distance",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "raft",
+          link: {
+            "type": "doc",
+            "id": "advance/raft/index",
+          },
+          "items": [
+            "advance/raft/algo",
+          ]
+        },
+        {
+          "type": "category",
+          "label": "tensor",
+          link: {
+            "type": "doc",
+            "id": "advance/tensor/index",
+          },
+          "items": [
+            "advance/tensor/xtensor",
+          ]
+        },
       ]
     },
   ],

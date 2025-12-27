@@ -13,12 +13,12 @@ The kumo search C++ Core Development Library is a server-side-focused foundation
 
 ## Foundamentals
 
-* [Performance Testing and Unit Testing](/docs/testing/)  -- testing and benchmark framwork.
-* [log](/docs/log/)  -- log section [turbo](https://github.com/kumose/turbo).
-* [time](/docs/time/)  -- Time section [turbo](https://github.com/kumose/turbo).
+* [Performance Testing and Unit Testing](/docs/foundamentals/testing/)  -- testing and benchmark framwork.
+* [log](/docs/foundamentals/log/)  -- log section [turbo](https://github.com/kumose/turbo).
+* [time](/docs/foundamentals/time/)  -- Time section [turbo](https://github.com/kumose/turbo).
 * [status](/docs/category/standardized-errors-and-error-return-values)  -- 
     standardized errors and error return values section [turbo](https://github.com/kumose/turbo).
-* [strings](/docs/strings/)  -- 
+* [strings](/docs/foundamentals/strings/)  -- 
     strings-operations section [turbo](https://github.com/kumose/turbo).
 
 ## kumo extension

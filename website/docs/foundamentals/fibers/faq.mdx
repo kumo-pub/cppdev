@@ -1,0 +1,81 @@
+# FAQ
+
+## Q: Is kthread a coroutine?
+
+No. The coroutines we commonly refer to specifically mean **N:1 threading libraries**—all coroutines run within a single system thread, with computational capabilities equivalent to various event loop libraries. Since coroutine switching does not involve system calls (no cross-thread operations), it can be extremely fast (100ns-200ns) and less affected by cache coherence. However, this comes at the cost of inefficient multi-core utilization: code must be non-blocking, otherwise all coroutines will be stuck, imposing strict requirements on developers. This characteristic makes coroutines suitable for writing IO servers with deterministic execution time (e.g., HTTP servers), which can achieve extremely high throughput in carefully tuned scenarios. 
+
+However, most online services within Baidu have **non-deterministic execution time**, and many retrieval tasks are collaboratively developed by dozens of engineers. A single slow function can block all coroutines. Event loops share this limitation: if a callback blocks, the entire loop is stuck. For example, **ub**a**server** (note the letter "a"—not ubserver) was Baidu's attempt at an asynchronous framework, composed of multiple parallel event loops. Its real-world performance was poor: slow logging operations, delays in Redis access, or heavy computation workloads in callbacks would cause a large number of pending requests to time out. As a result, this framework never gained popularity.
+
+kthread is an **M:N threading library**—a blocked kthread does not affect other kthreads. It relies on two key technologies:
+1. **Work stealing scheduling**: Enables kthreads to be scheduled to more CPU cores faster.
+2. **Butex**: A synchronization primitive that allows kthreads and pthreads to wait for and wake each other.
+
+Neither of these technologies is required for coroutines. For more knowledge about threading, refer to [this document](../../rpc/krpc/threading_overview.mdx).
+
+## Q: Should I use kthread extensively in my program?
+
+No. Unless you need to [run some code concurrently during a single RPC call](kthread_or_not.mdx), you should avoid directly calling kthread functions—leave these operations to krpc instead, as it handles them more appropriately.
+
+## Q: How do kthreads map to pthread workers?
+
+A pthread worker runs only one kthread at any given time. When the current kthread suspends:
+1. The pthread worker first attempts to pop a pending kthread from its local runqueue.
+2. If no pending kthread exists locally, it randomly steals pending kthreads from another worker's runqueue.
+3. If no kthreads are available to steal, the pthread worker sleeps and will be woken up when new pending kthreads are added.
+
+## Q: Can blocking pthread or system functions be called within a kthread?
+
+Yes. Only the current pthread worker is blocked; other pthread workers remain unaffected.
+
+## Q: Does a blocked kthread affect other kthreads?
+
+No. 
+- If a kthread blocks via kthread APIs: It yields the current pthread worker to other kthreads.
+- If a kthread blocks via pthread APIs or system functions: Pending kthreads on the current pthread worker are stolen and executed by other idle pthread workers.
+
+## Q: Can kthread APIs be called within a pthread?
+
+Yes. 
+- When kthread APIs are called in a kthread context: They affect the current kthread.
+- When kthread APIs are called in a pthread context: They affect the current pthread.
+
+Code using kthread APIs can run directly in pthread contexts without modification.
+
+## Q: Will a large number of kthreads calling blocking pthread/system functions affect RPC execution?
+
+Yes. For example, if there are 8 pthread workers and all 8 kthreads call the system `usleep()` function, the RPC code responsible for network I/O (sending/receiving data) will be temporarily unable to run. 
+
+As long as the blocking duration is not too long, this is generally **not a significant issue**—after all, all workers are in use, and queuing is the only viable alternative. In krpc, users can mitigate this by increasing the number of workers:
+- On the server side: Set [ServerOptions.num_threads](../../rpc/krpc/server.mdx#number-of-worker-threads) or the [-kthread_concurrency](http://krpc.baidu.com:8765/flags/kthread_concurrency) flag.
+- On the client side: Set the [-kthread_concurrency](http://krpc.baidu.com:8765/flags/kthread_concurrency) flag.
+
+Are there ways to completely avoid this issue?
+
+1. **Dynamically increasing worker count**: This may not work as expected. When a large number of workers are blocked, they are likely waiting for the same resource (e.g., a single mutex). Adding more workers only increases the number of waiters.
+   
+2. **Separating IO threads and worker threads**: 
+   - IO threads handle only network I/O (sending/receiving), while worker threads execute user logic. Even if all worker threads block, IO threads remain unaffected. 
+   - However, adding an extra layer (IO threads) does not resolve congestion: if all worker threads are stuck, the program will still freeze—only the bottleneck shifts from socket buffers to the message queue between IO threads and worker threads. In other words, IO threads may perform useless work when workers are blocked. This is the true meaning of the earlier statement ("not a significant issue"). 
+   - Another drawback: Each request requires a context switch from IO threads to worker threads. During high system load, these switches may not be scheduled in a timely manner, leading to longer latency tails.
+
+3. **Limiting maximum concurrency**: 
+   - If the number of concurrently processed requests is kept below the number of workers, the scenario where "all workers are blocked" can be avoided entirely. This is a practical solution (see [Limiting Maximum Concurrency](../../rpc/krpc/server.mdx#limiting-maximum-concurrency)).
+
+4. **Offloading blocked workers to an independent thread pool**:
+   - When the number of blocked workers exceeds a threshold (e.g., 6 out of 8), user code is no longer executed in-place but is dispatched to an independent thread pool. This ensures a few workers remain available to handle RPC I/O even if all user code blocks. 
+   - Currently, this mechanism is **not implemented in kthread mode** but is available when [pthread mode is enabled](../../rpc/krpc/server.mdx#pthread-mode). 
+   - Does this mechanism also perform "useless work" when user code is fully blocked? Possibly—but its primary purpose is to avoid deadlocks in extreme cases. For example:
+     - All user code blocks on a pthread mutex, and the mutex can only be unlocked in an RPC callback. If all workers are blocked, no thread can process the RPC callback, leading to a program-wide deadlock.
+   - While most RPC implementations have this potential issue, it rarely occurs in practice. Following the best practice of **avoiding RPC calls within locked sections** completely eliminates this risk.
+
+## Q: Will kthread support [Channel](https://gobyexample.com/channels) (as in Go)?
+
+No. A Channel represents a **point-to-point relationship**, but many real-world problems involve multiple points. The most natural solution with Channels is to:
+- Assign a "role" to manage a specific task/resource.
+- All other threads send commands to this role via Channels.
+
+If a program is divided into N such roles (each responsible for its own task), it can operate in an organized manner. However, using Channels implies splitting the program into distinct roles, which comes with tradeoffs:
+1. **Context switch overhead**: Any operation requires waiting for the target role to be scheduled, process the command, and respond—even with optimizations for cache locality, this overhead is significant.
+2. **Complex code**: Due to business consistency constraints, resources are often bound together, forcing a single role to handle multiple responsibilities. A role cannot perform other tasks while processing one, and tasks may have varying priorities. This leads to extremely complex code with frequent interruptions, jumps, and resumptions.
+
+What we typically need is a **buffered Channel**, which acts as a queue for ordered execution. kthread provides [ExecutionQueue](execution_queue.mdx) to fulfill this purpose, eliminating the need for Channels.

@@ -13,7 +13,7 @@ const config = {
   title: 'Kumo Foundamental',
   tagline: 'Dinosaurs are cool',
   favicon: 'img/favicon.svg',
-
+  
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
     v4: true, // Improve compatibility with the upcoming Docusaurus v4
@@ -174,6 +174,8 @@ const config = {
       prism: {
         theme: prismThemes.github,
         darkTheme: prismThemes.dracula,
+        additionalLanguages: ['cmake'],
+        plugins: ['diff-highlight'],
       },
     }),
 };

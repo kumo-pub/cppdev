@@ -1,0 +1,70 @@
+# Overview
+
+## I. Core Feature Summary of 6 JSON Libraries
+Based on the design positioning, performance, memory footprint, and functional scalability (e.g., Protobuf-JSON conversion) of each library, the revised summary is as follows:
+
+| Library Name       | Core Advantages                          | Key Features                                                                 | Applicable Scenarios                                  | Limitations                                      |
+|--------------------|------------------------------------------|-----------------------------------------------------------------------------|-------------------------------------------------------|--------------------------------------------------|
+| nlohmann-json      | Ultra-easy to use, low integration cost   | Header-only, STL-like API, C++11+ support, automatic type conversion, no compilation configuration required | Business scenarios with non-critical performance, rapid development, small-to-medium-sized JSON processing | Moderate runtime performance, no native Protobuf-JSON conversion, relatively high memory footprint |
+| merak/rapidjson    | High performance, full-featured, native Protobuf-JSON conversion | SIMD-optimized, dual DOM/SAX parsing modes, memory-efficient, native Protobuf-JSON conversion support, low overhead | Scenarios with clear performance requirements, need for Protobuf-JSON conversion, server/client-side applications | Slightly complex configuration (e.g., compilation macros), requires familiarity with DOM/SAX APIs |
+| cJSON              | Lightweight, low memory usage, small binary size | Implemented in C, zero dependencies, minimal memory footprint, binary size &lt; 100KB | Memory/binary size-sensitive scenarios, embedded systems, resource-constrained environments | Inconvenient C API, no C++ type safety, no Protobuf-JSON conversion |
+| jsoncoin           | Lightweight cross-platform, C/C++ dual compatibility | Lightweight DOM implementation, no redundant dependencies, simple compilation configuration, compatible with legacy C/C++ projects | Small-to-medium-sized mixed C/C++ projects, basic JSON serialization/deserialization | Single-functionality (no Protobuf-JSON conversion or SIMD optimization), moderate performance, low community activity |
+| melon/json         | High performance in both build and runtime, memory-efficient | Open-sourced by ByteDance, server-side optimized, low latency, minimal memory footprint, C++17+ support | Performance-sensitive server-side applications, large-scale JSON processing | Relatively niche ecosystem, slightly high integration cost, no native Protobuf-JSON conversion |
+| simdjson           | Extreme parsing speed, optimized for ultra-large JSON | Pure SIMD instruction acceleration, ultra-high parsing throughput, supports GB-scale JSON | Read-only scenarios requiring ultra-fast JSON parsing (e.g., log analysis) | Weak JSON generation capability, no native Protobuf-JSON conversion, relatively single functionality |
+
+## II. Revised & Optimized Quick Selection Guide
+Based on your clarification of "jsoncoin" (instead of jsoncpp), detailed supplements are provided below to ensure precise library selection:
+
+### 1. Prioritize nlohmann-json
+- **Applicable Scenarios**: Business logic-first development, non-critical performance requirements, high development efficiency, no need for Protobuf-JSON conversion.
+- **Rationale**: Header-only library that can be used directly with `#include`. It features an intuitive API (e.g., `json j = {"key": "value"}`), is debugging-friendly, has an active community, and minimizes problem-solving costs.
+- **Note**: Not suitable for ultra-large JSON (e.g., 100MB+) or high-frequency JSON processing scenarios.
+
+### 2. Must Choose merak/rapidjson
+- **Applicable Scenarios**: Need for Protobuf-JSON conversion, high performance requirements, memory constraints, need for flexible control over parsing/generation modes (DOM/SAX).
+- **Rationale**: The only library with native support for bidirectional Protobuf-JSON conversion (no additional encapsulation required). SIMD optimization delivers parsing speed close to simdjson, while also supporting complete JSON generation and modification functions, balancing performance and flexibility.
+
+### 3. Choose simdjson
+- **Applicable Scenarios**: Need for ultra-fast JSON parsing (read-only), processing GB-scale ultra-large JSON (e.g., log analysis, data import).
+- **Rationale**: Industry-leading parsing speed (10%-30% faster than Merak), but focuses solely on "parsing". Functions such as JSON generation and Protobuf-JSON conversion need to be implemented manually, making it suitable for "parsing-first" single scenarios.
+
+### 4. Choose melon/json
+- **Applicable Scenarios**: High-concurrency server-side applications with performance sensitivity, requiring optimized build and runtime latency.
+- **Rationale**: Optimized by ByteDance for server-side scenarios, it offers fast build speeds (no redundant dependencies), stable runtime latency, and minimal memory footprint, making it ideal for high-concurrency services (e.g., API gateways, microservices).
+
+### 5. Choose cJSON
+- **Applicable Scenarios**: Pure C projects, embedded devices, resource-constrained environments with strict memory limits.
+- **Rationale**: Implemented in C with zero dependencies, it compiles to an extremely small binary size and has controllable memory usage. However, its API requires manual memory management (e.g., creating/releasing nodes). It needs additional encapsulation for use in C++ projects and lacks type safety.
+
+### 6. Choose jsoncoin Cautiously
+- **Applicable Scenarios**: Maintenance of legacy mixed C/C++ projects, need for only basic JSON serialization/deserialization, strict restrictions on third-party library dependencies.
+- **Rationale**: Lightweight and cross-compatible with C/C++, it minimizes adaptation costs for legacy projects. However, it has single functionality, no performance optimization or expansion capabilities (e.g., Protobuf-JSON conversion), and is not recommended for new projects.
+
+## III. Revision and Supplementary Suggestions for the Original Selection Rules
+Your core selection logic is generally sound. The following revisions and supplements are made specifically for jsoncoin:
+
+### 1. Core Rules (Revised)
+| Business Requirement                     | Recommended Library               | Supplementary Notes                                                                 |
+|------------------------------------------|-----------------------------------|-------------------------------------------------------------------------------------|
+| Non-critical performance, ease of use first | nlohmann-json                     | First choice for new projects; maximizes development efficiency without low-level details |
+| Need for Protobuf-JSON conversion        | merak/rapidjson                   | Only library with native support; no additional encapsulation required, balancing performance and functionality |
+| Extremely high parsing speed (read-only) | merak/rapidjson + simdjson        | Use simdjson for simple scenarios; use merak for full-featured needs (parsing + generation + modification) |
+| High performance sensitivity in both build and runtime | melon/json or merak/rapidjson | melon/json is compatible with ByteDance's tech stack; merak has a more universal ecosystem |
+| Extreme sensitivity to memory/binary size | cJSON                             | Priority for pure C/embedded scenarios; prefer merak (with memory pool optimization) for C++ scenarios |
+| Maintenance of legacy mixed C/C++ projects | jsoncoin                          | Not recommended for new projects; only for legacy project compatibility |
+
+### 2. Key Details to Revise in the Original Rules
+- **Revision 1**: The original "jsoncon" refers to "jsoncoin". This library has no outstanding advantages and is only suitable for maintaining legacy mixed C/C++ projects. It is not a priority for new projects, and its positioning as "compatibility-first, single-functionality" should be clarified.
+- **Revision 2**: Supplement to the original rule "Use merak/simdjson for high parsing speed requirements": simdjson is only suitable for "read-only parsing". If JSON generation, modification, or Protobuf-JSON conversion are required, merak should still be the priority even with high parsing speed requirements.
+- **Revision 3**: Supplement to the original rule "Use cJSON for memory-sensitive scenarios": For memory-sensitive C++ scenarios, prefer merak (configured with memory pool + in-situ parsing) instead of directly choosing cJSON (which has low development efficiency with C APIs). Only use cJSON for pure C/embedded scenarios.
+
+### 3. Additional Notes (for jsoncoin)
+As a niche lightweight library, jsoncoin lacks active community maintenance, performance optimization, and expansion functions (e.g., Protobuf-JSON conversion). **It is absolutely not recommended for new projects** and should only be used for minimal adaptation of legacy projects. If legacy projects need to upgrade performance/functionality, migration to merak or nlohmann-json is recommended.
+
+## Final Simplified Selection Process
+1. New project + non-critical business performance + ease of use first → **nlohmann-json**
+2. Need for Protobuf-JSON conversion → **merak/rapidjson (mandatory)**
+3. Read-only parsing + ultra-large JSON → **simdjson**
+4. High-concurrency server-side + high performance sensitivity in both build and runtime → **melon/json (ByteDance stack) / merak (universal stack)**
+5. Pure C/embedded + extremely resource-constrained → **cJSON**
+6. Maintenance of legacy mixed C/C++ projects → **jsoncoin (compatibility-only scenarios)**

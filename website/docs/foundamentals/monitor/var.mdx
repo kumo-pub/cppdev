@@ -1,0 +1,227 @@
+# Variables
+
+## Introduction {#introduction}
+Tally variables are categorized into multiple concrete classes. The commonly used ones are listed below:
+
+| Type                  | Description                                                                                                                                                                                                 |
+|-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `tally::Counter<T>`   | Counter with a default value of 0; `varname << N` is equivalent to `varname += N`                                                                                                                            |
+| `tally::MaxerGauge<T>`| Maximum value gauge with a default value of `std::numeric_limits<T>::min()`; `varname << N` is equivalent to `varname = max(varname, N)`                                                                      |
+| `tally::MinerGauge<T>`| Minimum value gauge with a default value of `std::numeric_limits<T>::max()`; `varname << N` is equivalent to `varname = min(varname, N)`                                                                      |
+| `tally::IntRecorder`  | Calculates the average value since its first use. Note: the average is **not** restricted to a time window. To obtain the average within a specific time window, wrap it with `Window` in general.            |
+| `tally::Window<VAR>`  | Retrieves the accumulated value of a tally over a time window. Derived from an existing tally and updates automatically.                                                                                     |
+| `tally::PerSecond<VAR>`| Retrieves the average per-second accumulated value of a tally over a time window. Also a derived variable that updates automatically.                                                                        |
+| `tally::WindowEx<T>`  | Retrieves the accumulated value of a tally over a time window. Does not depend on other tallies and requires explicit data input.                                                                             |
+| `tally::PerSecondEx<T>`| Retrieves the average per-second accumulated value of a tally over a time window. Does not depend on other tallies and requires explicit data input.                                                         |
+| `tally::LatencyRecorder` | Specialized variable for recording latency and QPS. Input latency values to get average latency, max latency, QPS, and total count.                                                                          |
+| `tally::Status<T>`    | Records and displays a value with an additional `set_value` function.                                                                                                                                         |
+| `tally::FuncGauge`    | Displays values on demand. In scenarios where `set_value` cannot be invoked or its invocation frequency is unknown, it is more appropriate to retrieve and display values only when needed. Users implement this by passing a callback function for value retrieval. |
+| `tally::Flag`         | Exposes critical `turbo::Flags` as tallies for monitoring purposes.                                                                                                                                          |
+
+Example:
+```c++
+#include <tally/tally.h>
+
+namespace foo {
+namespace bar {
+
+// tally::Counter<T> is for accumulation; the following defines a Counter to count total read errors
+tally::Counter<int> g_read_error;
+// Wrap a Window around another tally to get its value within a time window
+tally::Window<tally::Counter<int> > g_read_error_minute("foo_bar", "read_error_minute", &g_read_error, 60);
+//                                                     ^          ^                         ^
+//                                                    Metric Name  Metric Description        60 seconds (10 seconds if omitted)
+
+// tally::LatencyRecorder is a composite variable that can count: total count, QPS, average latency, latency percentiles, max latency
+tally::LatencyRecorder g_write_latency("foo_bar_write", "write latency");
+//                                      ^               ^ Metric Description
+//                                     Metric Name (DO NOT add "latency" suffix! LatencyRecorder contains multiple tallies that append their own suffixes like write_qps, write_latency, etc.)
+
+// Define a variable to count the number of pushed tasks
+tally::Counter<int> g_task_pushed("foo_bar", "task_pushed");
+// Wrap a PerSecond around another tally to get its average per-second value within a time window (tasks pushed per second here)
+tally::PerSecond<tally::Counter<int> > g_task_pushed_second("foo_bar", "task pushed second", &g_task_pushed);
+//       ^                                                                                             ^
+//    Unlike Window, PerSecond divides the value by the time window size.                              Time window (last parameter; defaults to 10 seconds if omitted)
+
+}  // namespace bar
+}  // namespace foo
+```
+
+Usage in application code:
+```c++
+// Triggered on a read error
+foo::bar::g_read_error << 1;
+
+// Write latency is 23ms
+foo::bar::g_write_latency << 23;
+
+// Pushed 1 task
+foo::bar::g_task_pushed << 1;
+```
+
+:::info
+Note that `Window<>` and `PerSecond<>` are derived variables that update automatically—**do not push values to them**. You can also use tallies as member variables or local variables.
+
+**Ensure variable names are globally unique!** Otherwise, exposure will fail. If the `-tally_abort_on_same_name` flag is set to `true`, the program will abort immediately.
+
+A program may contain tallies from various modules. To avoid name conflicts, we recommend the naming convention: **module_classname_metric**
+
+- **Module**: Generally the program name, optionally prefixed with a product line abbreviation (e.g., inf_ds, ecom_retrbs).
+- **Classname**: Generally the class or function name (e.g., storage_manager, file_transfer, rank_stage1).
+- **Metric**: Generally terms like count, qps, latency.
+:::
+
+Examples of valid naming:
+```
+iobuf_block_count : 29                          # Module=iobuf   Classname=block  Metric=count
+iobuf_block_memory : 237568                     # Module=iobuf   Classname=block  Metric=memory
+process_memory_resident : 34709504              # Module=process Classname=memory Metric=resident
+process_memory_shared : 6844416                 # Module=process Classname=memory Metric=shared
+rpc_channel_connection_count : 0                # Module=rpc     Classname=channel_connection  Metric=count
+rpc_controller_count : 1                        # Module=rpc     Classname=controller Metric=count
+rpc_socket_count : 6                            # Module=rpc     Classname=socket     Metric=count
+```
+
+Tally performs automatic name normalization: regardless of input formats like `foo::BarNum`, `foo.bar.num`, `foo bar num`, or `foo-bar-num`, the final name will be `foo_bar_num`.
+
+Metric Naming Rules:
+- Use the `_count` suffix for counts (e.g., `request_count`, `error_count`).
+- Use the `_second` suffix for per-second counts (e.g., `request_second`, `process_inblocks_second`). This is sufficiently clear—avoid redundant suffixes like `_count_second` or `_per_second`.
+- Use the `_minute` suffix for per-minute counts (e.g., `request_minute`, `process_inblocks_minute`).
+
+To use a counter defined in another file, declare the corresponding variable in a header file:
+```c++
+namespace foo {
+namespace bar {
+// Note: g_read_error_minute and g_task_pushed_second are derived tallies that update automatically—do NOT declare them.
+extern tally::Counter<int> g_read_error;
+extern tally::LatencyRecorder g_write_latency;
+extern tally::Counter<int> g_task_pushed;
+}  // namespace bar
+}  // namespace foo
+```
+
+**Do NOT define global `Window` or `PerSecond` across files.** The initialization order of global variables in different compilation units is [undefined](https://isocpp.org/wiki/faq/ctors#static-init-order).
+
+Defining `Counter<int> foo_count` in `foo.cpp` and `PerSecond<Counter<int> > foo_qps(&foo_count);` in `foo_qps.cpp` is **incorrect**.
+
+### Thread Safety
+- Tally is **thread-compatible**: You can operate different tallies in different threads. For example, you can safely `expose` or `hide` **different** tallies in multiple threads—they will operate shared global data properly.
+- All tally functions **except read/write interfaces** are **not thread-safe**: For example, do not `expose` or `hide` the **same** tally in multiple threads, as this may cause program crashes. In general, there is no need to execute non-read/write interfaces concurrently across threads.
+
+For timing operations, use `turbo::TimeCost` (interface below):
+```c++
+#include <kutil/time.h>
+namespace turbo {
+class TimeCost {
+public:
+
+    TimeCost();
+
+    explicit TimeCost();
+
+    // Start the timer
+    void reset();
+
+    // Stop the timer
+    void stop();
+
+    // Get the elapsed time from reset() to stop()
+    int64_t n_elapsed() const;  // in nanoseconds
+    int64_t u_elapsed() const;  // in microseconds
+    int64_t m_elapsed() const;  // in milliseconds
+    int64_t s_elapsed() const;  // in seconds
+};
+}  // namespace kutil
+```
+
+## Variables
+
+### Variable Constraints: tally::Scope {#scope}
+`tally::Scope` serves as a scope constraint for all `tally::Variable` instances, limiting the `prefix` and `tag` of `tally::Variable`.
+
+Each `tally::Variable` belongs to a unique `Scope`. By default, it uses the global scope provided by `ScopeInstance::get_sys_scope`.
+
+### Core Variable Class: tally::Variable
+`Variable` is the base class for all tallies, primarily providing global registration, enumeration, query, and other core functions.
+
+When a tally is created with default parameters, it is **not** registered in any global structure—in this case, the tally functions purely as a high-performance counter. Registering a tally in the global table is called "exposure", which can be done via the `expose` function:
+```c++
+// Expose this variable globally so that it can be accessed via the following functions:
+//   list_exposed
+//   count_exposed
+//   describe_exposed
+//   find_exposed
+// Return 0 on success, -1 on failure.
+turbo::Status expose(std::string_view name, std::string_view help, Scope *scope = nullptr);
+```
+
+The name of a globally exposed tally is either `name` or `scope_id + name`. You can query exposed tallies using static functions suffixed with `_exposed` (e.g., `Variable::describe_exposed(name)` returns the description of the tally with the specified name).
+
+If a tally with the same name already exists, `expose` will print a FATAL log and return `-1`. If the `-tally_abort_on_same_name` flag is set to `true` (default: `false`), the program will abort immediately.
+
+Examples of exposing tallies:
+```c++
+tally::Counter<int> count1;
+// Values sum up to 60
+count1 << 10 << 20 << 30;
+// Expose the variable globally
+count1.expose("count1","help");
+auto f_name = count1.full_name();
+CHECK_EQ("60", tally::Variable::describe_exposed(f_name));
+// Expose the variable with a different name
+count1.expose("another_name_for_count1","help");
+auto new_f_name = count1.full_name();
+CHECK_EQ("", tally::Variable::describe_exposed(f_name));
+CHECK_EQ("60", tally::Variable::describe_exposed(new_f_name));
+// Expose directly via the constructor
+tally::Counter<int> count2("count2");
+f_name = count2.full_name();
+// Default value of Counter<int> is 0
+CHECK_EQ("0", tally::Variable::describe_exposed(f_name));
+
+// Name conflict: if -tally_abort_on_same_name is true,
+// the program aborts; otherwise, a FATAL log is printed
+tally::Status<std::string> status1("count2", "hello");
+```
+
+## Exporting Variables
+The base class for variable export interfaces is `tally::StatsReporter`. All export methods must inherit from `tally::StatsReporter`. Tally provides built-in serialization support for `Prometheus` and `JSON` by default.
+
+### Prometheus
+Note: `PrometheusStatsReporter` can only export monitoring metrics—non-metric variables are not supported.
+```cpp
+std::stringstream ss;
+tally::PrometheusStatsReporter reporter(ss);
+tally::Variable::report(&reporter, now);
+reporter.flush();
+```
+
+### JSON
+Note: `JsonStatsReporter` can export all types of variables.
+```cpp
+nlohmann::ordered_json result;
+auto json_reporter = tally::JsonStatsReporter(result);
+tally::Variable::report(&json_reporter, now);
+json_reporter.flush();
+```
+
+## tally::Reducer
+`Reducer` combines multiple values into a single value using a binary operator. The operator must satisfy the **associative law**, **commutative law**, and have **no side effects**. Only when these three conditions are met can we ensure the merged result is not affected by the distribution of thread-private data. For example, subtraction does not satisfy the associative and commutative laws, so it cannot be used here.
+
+```c++
+// Reduce multiple values into one with `Op': e1 Op e2 Op e3 ...
+// `Op' shall satisfy:
+//   - associative:     a Op (b Op c) == (a Op b) Op c
+//   - commutative:     a Op b == b Op a;
+//   - no side effects: a Op b never changes if a and b are fixed.
+// otherwise the result is undefined.
+template <typename T, typename Op>
+class Reducer : public Variable;
+```
+
+`reducer << e1 << e2 << e3` is equivalent to `reducer = e1 op e2 op e3`.
+
+Common subclasses of `Reducer` for metrics include `tally::Counter`, `tally::MaxerGauge`, `tally::MinerGauge`, etc.
+

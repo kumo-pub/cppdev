@@ -1,0 +1,226 @@
+# Schema（模式）
+(This feature was released in v1.1.0)
+
+JSON Schema is a draft standard for describing JSON formats. A schema itself is also a JSON document. Validating JSON against a JSON Schema allows your code to safely access the DOM without checking for type existence, key existence, and other such details. It also ensures that the output JSON conforms to the specified schema.
+
+Merak implements a validator for [JSON Schema Draft v4](http://json-schema.org/documentation.html). If you are unfamiliar with JSON Schema, refer to [Understanding JSON Schema](http://spacetelescope.github.io/understanding-json-schema/).
+
+[TOC]
+
+# Basic Usage {#BasicUsage}
+First, parse the JSON Schema into a `Document`, then compile it into a `SchemaDocument`.
+
+Next, create a `SchemaValidator` using the `SchemaDocument`. Similar to `Writer`, it can process SAX events. Therefore, you can validate a JSON using `document.Accept(validator)` and then retrieve the validation result.
+
+~~~cpp
+#include "merak/json/schema.h"
+
+// ...
+
+Document sd;
+if (sd.Parse(schemaJson).HasParseError()) {
+    // This schema is not valid JSON
+    // ...       
+}
+SchemaDocument schema(sd); // Compile a Document into a SchemaDocument
+// sd is no longer needed afterward
+
+Document d;
+if (d.Parse(inputJson).HasParseError()) {
+    // Input is not valid JSON
+    // ...       
+}
+
+SchemaValidator validator(schema);
+if (!d.Accept(validator)) {
+    // Input JSON does not conform to the schema
+    // Print diagnostic information
+    StringBuffer sb;
+    validator.GetInvalidSchemaPointer().StringifyUriFragment(sb);
+    printf("Invalid schema: %s\n", sb.GetString());
+    printf("Invalid keyword: %s\n", validator.GetInvalidSchemaKeyword());
+    sb.Clear();
+    validator.GetInvalidDocumentPointer().StringifyUriFragment(sb);
+    printf("Invalid document: %s\n", sb.GetString());
+}
+~~~
+
+Important notes:
+- A single `SchemaDocument` can be referenced by multiple `SchemaValidator` instances. It will not be modified by `SchemaValidator`.
+- A `SchemaValidator` can be reused to validate multiple documents. Call `validator.Reset()` before validating other documents.
+
+# Validation During Parsing/Serialization {#ParsingSerialization}
+Unlike most JSON Schema validators, Merak provides a SAX-based schema validator implementation. Therefore, you can validate JSON while parsing it from an input stream. If the validator encounters a value that does not conform to the schema, it immediately terminates parsing. This design is particularly useful when parsing large JSON files.
+
+## DOM Parsing {#DomParsing}
+When parsing with the DOM, `Document` needs to perform additional setup and teardown work beyond receiving SAX events. Therefore, extra steps are required to connect `Reader`, `SchemaValidator`, and `Document`. `SchemaValidatingReader` is a helper class that handles these tasks.
+
+~~~cpp
+#include "merak/json/filereadstream.h"
+
+// ...
+SchemaDocument schema(sd); // Compile a Document into a SchemaDocument
+
+// Use reader to parse JSON
+FILE* fp = fopen("big.json", "r");
+FileReadStream is(fp, buffer, sizeof(buffer));
+
+// Parse JSON with reader, validate its SAX events, and store in d
+Document d;
+SchemaValidatingReader<kParseDefaultFlags, FileReadStream, UTF8<> > reader(is, schema);
+d.Populate(reader);
+
+if (!reader.GetParseResult()) {
+    // Not valid JSON
+    // When reader.GetParseResult().Code() == kParseErrorTermination,
+    // it may be terminated by:
+    // (1) The validator found the JSON non-conforming to the schema; or
+    // (2) I/O error in the input stream.
+
+    // Check validation result
+    if (!reader.IsValid()) {
+        // Input JSON does not conform to the schema
+        // Print diagnostic information
+        StringBuffer sb;
+        reader.GetInvalidSchemaPointer().StringifyUriFragment(sb);
+        printf("Invalid schema: %s\n", sb.GetString());
+        printf("Invalid keyword: %s\n", reader.GetInvalidSchemaKeyword());
+        sb.Clear();
+        reader.GetInvalidDocumentPointer().StringifyUriFragment(sb);
+        printf("Invalid document: %s\n", sb.GetString());
+    }
+}
+~~~
+
+## SAX Parsing {#SaxParsing}
+SAX parsing is much simpler. If you only need to validate JSON without further processing, all you need is:
+
+~~~cpp
+SchemaValidator validator(schema);
+Reader reader;
+if (!reader.Parse(stream, validator)) {
+    if (!validator.IsValid()) {
+        // ...    
+    }
+}
+~~~
+
+This approach is identical to the `example/schemavalidator/schemavalidator.cpp` example. It offers a unique advantage: regardless of how large the JSON is, memory usage remains low (memory usage is only related to the complexity of the Schema).
+
+If you need to further process SAX events, use the template class `GenericSchemaValidator` to set the output `Handler` for the validator:
+
+~~~cpp
+MyHandler handler;
+GenericSchemaValidator<SchemaDocument, MyHandler> validator(schema, handler);
+Reader reader;
+if (!reader.Parse(ss, validator)) {
+    if (!validator.IsValid()) {
+        // ...    
+    }
+}
+~~~
+
+## Serialization {#Serialization}
+We can also perform validation during serialization. This ensures that the output JSON conforms to a JSON Schema.
+
+~~~cpp
+StringBuffer sb;
+Writer<StringBuffer> writer(sb);
+GenericSchemaValidator<SchemaDocument, Writer<StringBuffer> > validator(s, writer);
+if (!d.Accept(validator)) {
+    // Some problem during Accept(), it may be validation or encoding issues.
+    if (!validator.IsValid()) {
+        // ...
+    }
+}
+~~~
+
+Of course, if your application only requires SAX-style generation, simply redirect SAX events from the original `Writer` to the `SchemaValidator`.
+
+# Remote Schema {#RemoteSchema}
+JSON Schema supports the [`$ref` keyword](http://spacetelescope.github.io/understanding-json-schema/structuring.html), which is a [JSON pointer](pointer.mdx) referencing a local or remote schema. Local pointers start with `#`, while remote pointers are relative or absolute URIs. For example:
+
+~~~json
+{ "$ref": "definitions.json#/address" }
+~~~
+
+Since `SchemaDocument` does not know how to handle these URIs, it requires the user to provide an instance of `IRemoteSchemaDocumentProvider` to process them.
+
+~~~cpp
+class MyRemoteSchemaDocumentProvider : public IRemoteSchemaDocumentProvider {
+public:
+    virtual const SchemaDocument* GetRemoteDocument(const char* uri, SizeType length) {
+        // Resolve the uri and returns a pointer to that schema.
+    }
+};
+
+// ...
+
+MyRemoteSchemaDocumentProvider provider;
+SchemaDocument schema(sd, &provider);
+~~~
+
+# Standard Conformance {#Conformance}
+Merak passes 262 out of 263 tests in the [JSON Schema Test Suite](https://github.com/json-schema/JSON-Schema-Test-Suite) (JSON Schema draft 4).
+
+The failed test is "change resolution scope" - "changed scope ref invalid" in `refRemote.json`. This is due to the unimplemented `id` schema keyword and URI resolution/merging functionality.
+
+Additionally, the `format` schema keyword for string types is ignored, as the standard does not mandate its implementation.
+
+## Regular Expressions {#RegEx}
+The `pattern` and `patternProperties` schema keywords use regular expressions to match required patterns.
+
+Merak implements a simple NFA regular expression engine, which is used by default. It supports the following syntax:
+
+| Syntax       | Description                  |
+|--------------|------------------------------|
+| `ab`         | Concatenation                |
+|<code>a&#124;b</code>| Alternation             |
+| `a?`         | Zero or one occurrence       |
+| `a*`         | Zero or more occurrences     |
+| `a+`         | One or more occurrences      |
+| `a{3}`       | Exactly 3 occurrences        |
+| `a{3,}`      | At least 3 occurrences       |
+| `a{3,5}`     | 3 to 5 occurrences           |
+| `(ab)`       | Grouping                     |
+| `^a`         | Start of string              |
+| `a$`         | End of string                |
+| `.`          | Any character                |
+| `[abc]`      | Character class              |
+| `[a-c]`      | Character class range        |
+| `[a-z0-9_]`  | Combined character class     |
+| `[^abc]`     | Negated character class      |
+| `[^a-c]`     | Negated character class range|
+| `[\b]`       | Backspace (U+0008)           |
+|<code>\\&#124;</code>, `\\`, ... | Escape characters |
+| `\f`         | Form feed (U+000C)           |
+| `\n`         | Line feed (U+000A)           |
+| `\r`         | Carriage return (U+000D)     |
+| `\t`         | Horizontal tab (U+0009)      |
+| `\v`         | Vertical tab (U+000B)        |
+
+For users with C++11 compilers, `std::regex` can be used by defining `RAPIDJSON_SCHEMA_USE_INTERNALREGEX=0` and `RAPIDJSON_SCHEMA_USE_STDREGEX=1`. If your schema does not use `pattern` or `patternProperties`, both macros can be set to zero to disable this feature, reducing code size.
+
+# Performance {#Performance}
+Most C++ JSON libraries do not support JSON Schema. Therefore, we attempted to evaluate Merak's JSON Schema validator following [json-schema-benchmark](https://github.com/ebdrup/json-schema-benchmark). This benchmark tests 11 JavaScript libraries running on node.js.
+
+The benchmark validates tests from the [JSON Schema Test Suite](https://github.com/json-schema/JSON-Schema-Test-Suite), excluding some test suites and individual tests. We implemented the same benchmark in `schematest.cpp` at `test/perftest/schematest.cpp`.
+
+The following results were collected on a MacBook Pro (2.8 GHz Intel Core i7):
+
+| Validator               | Relative Speed | Tests per Second       |
+|-------------------------|:--------------:|:----------------------:|
+| Merak                   | 155%           | 30682                  |
+| [`ajv`](https://github.com/epoberezkin/ajv) | 100% | 19770 (± 1.31%) |
+| [`is-my-json-valid`](https://github.com/mafintosh/is-my-json-valid) | 70% | 13835 (± 2.84%) |
+| [`jsen`](https://github.com/bugventure/jsen) | 57.7% | 11411 (± 1.27%) |
+| [`schemasaurus`](https://github.com/AlexeyGrishin/schemasaurus) | 26% | 5145 (± 1.62%) |
+| [`themis`](https://github.com/playlyfe/themis) | 19.9% | 3935 (± 2.69%) |
+| [`z-schema`](https://github.com/zaggino/z-schema) | 7% | 1388 (± 0.84%) |
+| [`jsck`](https://github.com/pandastrike/jsck#readme) | 3.1% | 606 (± 2.84%) |
+| [`jsonschema`](https://github.com/tdegrunt/jsonschema#readme) | 0.9% | 185 (± 1.01%) |
+| [`skeemas`](https://github.com/Prestaul/skeemas#readme) | 0.8% | 154 (± 0.79%) |
+| tv4                     | 0.5%           | 93 (± 0.94%)           |
+| [`jayschema`](https://github.com/natesilva/jayschema) | 0.1% | 21 (± 1.14%) |
+
+In other words, Merak is approximately 1.5x faster than the fastest JavaScript library (ajv) and 1400x faster than the slowest one.
