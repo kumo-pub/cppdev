@@ -4,7 +4,10 @@ krpc provides [asynchronous interfaces](../../rpc/krpc/client.mdx#asynchronous-a
 **Short answer**: For low-latency scenarios, start with simple and easy-to-understand synchronous interfaces. If they don’t meet requirements, use asynchronous interfaces. Only use kthread when multi-core parallel computing is needed.
 
 ## Synchronous or Asynchronous
-Asynchrony replaces blocking with callbacks—where there is blocking, there are callbacks. While callbacks work well and are widely accepted in languages like JavaScript, anyone who has used them in multi-threaded environments will find they are entirely different from what we need. This difference is not about [lambda](https://en.wikipedia.org/wiki/Anonymous_function) or [future](https://en.wikipedia.org/wiki/Futures_and_promises), but that JavaScript is **single-threaded**. JavaScript-style callbacks are unlikely to work in multi-threaded environments due to excessive race conditions—synchronous methods in single-threaded vs. multi-threaded contexts are fundamentally different.
+Asynchrony replaces blocking with callbacks—where there is blocking, there are callbacks. While callbacks work well and are widely accepted in languages like JavaScript,
+anyone who has used them in multi-threaded environments will find they are entirely different from what we need. This difference is not about [lambda](https://en.wikipedia.org/wiki/Anonymous_function) or [future](https://en.wikipedia.org/wiki/Futures_and_promises),
+but that JavaScript is **single-threaded**. JavaScript-style callbacks are unlikely to work in multi-threaded environments due to excessive race conditions—synchronous methods
+in single-threaded vs. multi-threaded contexts are fundamentally different.
 
 Could we design services in a similar fashion (multiple threads, each with an independent event loop)? Yes—**ub**a**server** (note the letter "a") is an example, but its real-world performance was poor. Converting blocking code to callback-based code is non-trivial: blocking within loops, conditional branches, or deep nested subfunctions is extremely hard to refactor. Furthermore, legacy code and third-party libraries are often impossible to modify. Inevitably, blocking code remains, causing delays to other callbacks in the same thread, leading to request timeouts and subpar server performance.
 
