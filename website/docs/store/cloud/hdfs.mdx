@@ -1,0 +1,96 @@
+---
+title: HDFS Integration
+---
+
+# HDFS Integration with Kumo Stack
+
+This document describes **how to integrate HDFS using libhdfs3** into a Kumo deployment.
+Focus is on **practical integration and operational guidance**, not on choosing HDFS over other clouds.
+
+---
+
+## 1. Supported HDFS Component via `kmpkg`
+
+| Package | Description |
+|---------|-------------|
+| libhdfs3 | Native C++ library to interact with HDFS, supports file read/write, directory listing, and permission management. |
+
+> libhdfs3 is the recommended integration method for Kumo Stack due to its **performance, stability, and operational simplicity**.
+
+---
+
+## 2. Integration Patterns
+
+### 2.1 KV Backup to HDFS
+
+**Use Cases:**
+- Store RocksDB SST files or snapshots.
+- Long-term retention and disaster recovery.
+
+**Best Practices:**
+- Use **single SST file uploads per RocksDB snapshot** to simplify restore.
+- Organize **directory hierarchy by environment/date**:
+
+```
+
+/kv-backups/
+└─ rocksdb/
+└─ 2026-01-04/
+├─ cf_default-00001.sst
+└─ cf_default-00002.sst
+
+````
+
+**C++ Example: Upload SST to HDFS**
+
+```cpp
+#include "hdfs/hdfs.h"
+
+hdfsFS fs = hdfsConnect("namenode-host", 8020);
+hdfsFile file = hdfsOpenFile(fs, "/kv-backups/rocksdb/snapshot-20260104.sst", O_WRONLY|O_CREAT, 0, 0, 0);
+
+// Write local SST file to HDFS
+char buffer[64 * 1024];
+std::ifstream in("snapshot.sst", std::ios::binary);
+while (in.read(buffer, sizeof(buffer))) {
+    hdfsWrite(fs, file, buffer, in.gcount());
+}
+
+hdfsCloseFile(fs, file);
+hdfsDisconnect(fs);
+````
+
+---
+
+### 2.2 Operational Notes
+
+* **Throughput:** Use multiple threads to upload large SST files concurrently.
+* **Directory Organization:** Avoid too many files in a single directory; it degrades NameNode performance.
+* **Permissions:** Ensure HDFS user has write access; recommended to run Kumo services under dedicated HDFS user.
+* **Restore:** Always validate snapshot restore on staging before production use.
+
+---
+
+## 3. KV Layer Backup Strategy
+
+* **RocksDB Snapshots:** Use `DB::GetSnapshot()` to generate a consistent view.
+* **Checkpoint API:** Copy full directory, then upload to HDFS.
+* **Column Families:** Minimize CFs to reduce operational complexity.
+
+---
+
+## 4. Example Workflow
+
+1. Take RocksDB snapshot via `rocksdb::DB::GetSnapshot()`.
+2. Flush required column families.
+3. Save SST files locally.
+4. Upload SST files to HDFS using libhdfs3.
+5. Optionally trigger downstream validation/notification.
+
+---
+
+## 5. Summary
+
+* Kumo HDFS integration focuses on **operational-first design**.
+* Use **single SST uploads, organized directories**, and **minimal CFs** for maintainable backups.
+* `libhdfs3` provides a **native, high-performance, C++ compatible interface** for KV backup and snapshot workflows.

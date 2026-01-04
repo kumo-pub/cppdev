@@ -1,0 +1,152 @@
+---
+title: AWS Integration
+---
+
+# AWS Integration with Kumo Stack
+
+This document describes **how to integrate AWS services into a Kumo deployment**.
+The focus is **practical integration and operational guidance**, not a cloud recommendation.
+
+---
+
+## 1. Supported AWS Components via `kmpkg`
+
+Kumo’s package manager `kmpkg` supports the following AWS components:
+
+| Package | Version | Description |
+|---------|--------|-------------|
+| aws-c-auth | 0.9.4 | AWS client-side authentication (C99). |
+| aws-c-cal | 0.9.13 | Cryptography primitives wrapper (C99). |
+| aws-c-common | 0.12.6 | Common utilities used across AWS libraries. |
+| aws-c-compression | 0.3.1 | Huffman encode/decode implementation. |
+| aws-c-event-stream | 0.5.9 | Implementation of vnd.amazon.event-stream. |
+| aws-c-http | 0.10.7 | HTTP/1.1 and HTTP/2 client. |
+| aws-c-io | 0.24.0 | IO and TLS handling for application protocols. |
+| aws-c-mqtt | 0.13.3 | MQTT 3.1.1 implementation. |
+| aws-c-s3 | 0.11.3 | S3 client library. |
+| aws-c-sdkutils | 0.2.4 | Logging, retry logic, and error handling utilities. |
+| aws-checksums | 0.2.8 | HW-accelerated CRC32/CRC32c fallback implementation. |
+| aws-crt-cpp | 0.36.0 | C++ wrapper over aws-c-* libraries with transport abstraction. |
+| aws-lambda-cpp | 0.2.10 | Runtime for AWS Lambda (C++). |
+| aws-sdk-cpp | 1.11.710 | Full AWS SDK for C++. |
+
+> These libraries provide the **low-level building blocks** to integrate AWS S3, MQTT, Lambda, and HTTP services into Kumo applications.
+
+---
+
+## 2. Integration Patterns
+
+### 2.1 S3 Object Storage
+
+**Use Cases:**
+- Backup RocksDB snapshots, SST files, or KV layer exports.
+- Store large datasets for long-term retention.
+
+**Best Practices:**
+- Prefer **single object per RocksDB snapshot or SST file** to simplify restore.
+- Enable **versioning** to prevent accidental data loss.
+- For very large backups (>5GB), use **multipart upload**.
+- Consider **prefix-based sharding** for high-throughput writes (`snapshots/20260104/part-0000X.sst`) to avoid S3 write bottlenecks.
+
+**Example: Upload RocksDB SST File**
+
+```cpp
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/PutObjectRequest.h>
+#include <fstream>
+
+Aws::S3::S3Client s3_client;
+Aws::S3::Model::PutObjectRequest request;
+request.SetBucket("kumo-backup");
+request.SetKey("rocksdb-snapshot-20260104.sst");
+
+auto input_data = Aws::MakeShared<Aws::FStream>("snapshot", "snapshot.sst", std::ios::in | std::ios::binary);
+request.SetBody(input_data);
+
+auto outcome = s3_client.PutObject(request);
+if (!outcome.IsSuccess()) {
+    std::cerr << "Failed to upload snapshot: " << outcome.GetError().GetMessage() << "\n";
+}
+````
+
+### 2.2 Event Streaming
+
+**Use Cases:**
+
+* Publish KV change events to an event stream.
+* Integrate with Lambda or other consumers.
+
+**Libraries:**
+
+* `aws-c-event-stream`
+* `aws-c-http` / `aws-c-mqtt`
+
+**Best Practices:**
+
+* Use **batched event sending** to reduce overhead.
+* Monitor **retry counts** and **latency** using `aws-c-sdkutils`.
+
+### 2.3 Compute (Lambda)
+
+**Use Cases:**
+
+* Trigger automatic snapshot uploads to S3.
+* Run data-processing or alerting scripts on KV layer changes.
+
+**Libraries:**
+
+* `aws-lambda-cpp`
+* Integrates with `aws-c-s3` or `aws-c-event-stream` for input/output.
+
+---
+
+## 3. KV Layer Backup Strategies
+
+* **RocksDB Snapshots:**
+
+* Lightweight, consistent view of DB at a point in time.
+* Can upload **SST files directly** to S3.
+* **Checkpoint Files (Backup API):**
+
+* Creates a **full copy of the DB directory**.
+* Useful for recovery or migration.
+* **Operational Note:**
+
+* Prefer **minimal column families** to simplify backup/restore.
+* For very large DBs, incremental backups via SST file uploads are recommended.
+
+---
+
+## 4. Key Design and Throughput Considerations
+
+* Use **fixed-length prefix keys** for KV range traversal.
+* Randomize prefixes if writing at very high throughput to avoid S3 object hot spots.
+* SST file upload should respect RocksDB compaction patterns: large sequential files are preferred.
+
+---
+
+## 5. Operational Recommendations
+
+* **Environment Isolation:** Separate buckets/prefixes for dev, staging, prod.
+* **Throughput:** Optimize key design to avoid S3 hot spots (see above).
+* **Consistency:** S3 overwrite/delete is eventually consistent; design backup and restore accordingly.
+* **Monitoring:** Use `aws-c-sdkutils` for logging retries, errors, and performance.
+* **Restore:** Always test backup restore in a staging environment before production use.
+
+---
+
+## 6. Example Workflow
+
+1. Take a **RocksDB snapshot** using `rocksdb::DB::GetSnapshot()`.
+2. Flush column families if needed.
+3. Save **SST files** to a local directory.
+4. Upload SST files to S3 using `aws-c-s3`.
+5. Optionally, trigger a **Lambda function** to validate or process the snapshot.
+
+---
+
+## 7. Summary
+
+* AWS integration in Kumo is **operational-first**, not advisory.
+* Use **S3 for KV backup**, **Event Stream for messaging**, and **Lambda for automation**.
+* Prefer **minimal CFs, fixed prefix keys, and direct SST uploads** for maintainable and scalable deployments.

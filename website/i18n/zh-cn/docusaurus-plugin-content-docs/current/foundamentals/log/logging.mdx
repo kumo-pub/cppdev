@@ -1,0 +1,245 @@
+# 日志
+
+turbo 日志库提供了将程序状态的简短文本消息写入 `stderr`、`磁盘文件` 或 `其他接收器`（通过扩展 API）的工具。
+
+## API 概览 {#API}
+
+`KLOG()` 和 `kCHECK()` 宏族是 API 的核心。每个宏都形成一条语句的起点，可以向其中流式传入额外数据，就像 `std::cout` 一样。
+
+所有流入单个宏的数据都会被拼接，并作为一条消息写入日志文件，前面带有由元数据（时间、文件/行号等）形成的 [前缀](#prefix)。值得注意的是，与 `std::cout` 不同，本库会在每条消息末尾自动添加换行符，因此通常不应在日志语句末尾使用 `\n` 或 `std::endl`。任何显式流入的换行符仍会出现在日志文件中。
+
+有关更详细的信息，请参考头文件。
+
+### `KLOG()` 宏 {#KLOG}
+
+`KLOG()` 接受一个严重性级别作为参数，该参数定义要记录的日志信息的粒度和类型。四个基本严重性级别为 `INFO`、`WARNING`、`ERROR` 和 `FATAL`。`FATAL` 并非随意命名；它会在记录完流式消息后使日志库终止进程。
+有关 [日志级别](#severity) 的更多信息，包括如何选择级别的最佳实践，请参见下文。
+
+```c++
+KLOG(INFO) << "Hello Kumo!";
+```
+
+这将在日志中生成类似以下的消息：
+
+```text
+I0926 09:00:00.000000 12345 foo.cc:10] Hello Kumo!
+```
+
+元数据的格式在 [下文](#prefix) 有说明。
+
+### `kCHECK()` 宏 {#kCHECK}
+
+`kCHECK()` 是一个断言。其严重性始终为 `FATAL`，所以其唯一参数是一个应为真的条件。如果条件不满足，`kCHECK()` 会写入日志并终止进程。它在 **所有构建模式** 下都是激活的（与 C 的 `assert()` 宏不同），并以类似 `KLOG()` 的方式将失败信息记录到应用日志，但会包含关于失败原因和发生位置的额外信息。
+
+像 `FATAL` 一样，`CHECK()` 断言应谨慎使用（尤其是在服务端代码中），仅在确实需要终止进程而不是尝试恢复时使用，例如：不可恢复的错误，或者可能破坏用户数据的内存损坏。注意，你还应了解代码可能运行的位置；在命令行工具或批处理任务中使用 `kCHECK()` 风险较低，而在面向用户的服务中则需谨慎。如果不确定代码运行环境（例如，你在编写工具库），应假定它会在面向生产的服务中使用，并尽量避免使用 `kCHECK()`。
+
+```c++
+kCHECK(!filenames_sorted.empty()) << "no files matched";
+ProcessFile(filenames_sorted.front());
+```
+
+这将在日志中生成类似以下的消息：
+
+```
+F0926 09:00:01.000000   12345 foo.cc:100] Check failed: !filenames_sorted.empty() no files matched
+E0926 09:00:01.150000   12345 process_state.cc:1133] *** SIGABRT received by PID 12345 (TID 12345) on cpu 0 from PID 12345; stack trace: ***
+E0926 09:00:01.250000   12345 process_state.cc:1136] PC: @     0xdeadbeef  (unknown)  raise
+    @     0xdeadbeef       1920  FailureSignalHandler()
+    @     0xdeadc0w5    2377680  (unknown)
+(更多堆栈帧省略)
+```
+
+注意，该日志条目使用 `F` 前缀表示 `FATAL` 级别。条件文本会在流式操作数之前记录。此外，堆栈跟踪以 `ERROR` 严重性（前缀为 `E`）记录，在 `FATAL` 消息之后、进程终止之前。
+
+特殊的两参数形式包括 `CHECK_EQ()`、`CHECK_GT()`、`CHECK_STREQ()`（用于 `char*` 字符串）等，可用于断言可流式、可比较类型之间的比较。除了记录参数文本，还会记录参数的实际值。
+
+```c++
+int x = 3, y = 5;
+CHECK_EQ(2 * x, y) << "oops!";
+```
+
+这将在日志中生成类似以下的消息：
+
+```
+F0926 09:00:02.000000   12345 foo.cc:20] Check failed: 2 * x == y (6 vs. 5) oops!
+```
+
+### 日志级别 {#severity}
+
+`turbo::LogSeverity` 类型表示严重性级别。传给 `KLOG()` 的参数实际上不是该类型，也不是 *任何* 类型。通过宏技巧，使 `KLOG(ERROR)` 能在不使用宏或全局符号 `ERROR` 的情况下工作。这是必要的，因为 `ERROR` 被某些流行第三方包（如 Windows）定义，无法重新定义。
+
+#### 四个正式日志级别
+
+##### `INFO` {#severity-info}
+
+对应 `turbo::LogSeverity::kInfo`。描述程序状态的重要、*预期* 事件，但不表示问题。库（尤其是底层公共库）应谨慎使用此级别，以避免污染所有使用它的程序日志。
+
+##### `WARNING` {#severity-warning}
+
+对应 `turbo::LogSeverity::kWarning`。描述*可能*表示问题但程序可恢复的非预期事件。
+
+##### `ERROR` {#severity-error}
+
+对应 `turbo::LogSeverity::kError`。描述程序已从中恢复的非预期问题事件。`ERROR` 消息应可采取行动，即应描述软件或配置的实际问题（而非用户输入等），并且消息、文件名、行号及上下文应足以理解报告的事件。
+
+##### `FATAL` {#severity-fatal}
+
+对应 `turbo::LogSeverity::kFatal`，也是 `kCHECK` 失败的隐式严重性。描述不可恢复的问题。该级别日志会终止进程。在服务（尤其是面向用户的服务）及可能被包含在此类服务中的库代码中，应谨慎使用。每条致命日志都有潜在宕机风险，若大量服务工作进程同时触发。
+致命日志通常更适用于开发工具、批处理任务或作业启动失败。尽管如此，进程终止和宕机总比未定义行为（可能包括用户数据损坏或安全/隐私事件）更安全，因此在服务器和库代码中，对于无法通过其他方式处理的意外行为，`FATAL` 有时也是最后手段。
+
+#### 两个伪级别
+
+##### `DFATAL` {#severity-dfatal}
+
+("debug fatal") 对应 `turbo::kLogDebugFatal`。在优化构建中，其值为 `ERROR`（如生产环境），在其他构建中为 `FATAL`（如测试）。可确保意外事件导致测试失败（通过终止进程），但不会影响生产环境。生产工作进程在 `DFATAL` 失败后继续运行，因此需保证恢复平滑。
+
+##### `QFATAL` {#severity-qfatal}
+
+("quiet fatal") 没有对应的 `turbo::LogSeverity` 值。行为类似 `FATAL`，但不记录堆栈跟踪，也不运行 `atexit()` 处理器。通常适用于启动阶段错误（如 flag 校验），此时控制流无关紧要，诊断信息也不必要。
+
+### 动态日志级别
+
+如果想通过 C++ 表达式指定严重性级别（例如在运行时动态选择级别），也可以：
+
+```c++
+KLOG(LEVEL(MoonPhase() == kFullMoon ? turbo::LogSeverity::kFatal
+                                   : turbo::LogSeverity::kError))
+      << "Spooky error!";
+```
+
+### `VKLOG()` 宏 {#VKLOG}
+
+`VKLOG()` ("verbose log") 用于运行时可配置的调试日志。该宏接受一个非负整数作为参数——严重性隐式为 `INFO`。详细级别值是任意的，但数值越低，消息越显眼。非零详细级别默认禁用，禁用的 `VKLOG()` 性能开销很小，因此在 Kumo 的大部分地方可以放心大量使用 `VKLOG()`，不会显著影响性能。
+
+```c++
+Foo::Foo(int num_bars) {
+  VKLOG(4) << "Constructing a new Foo with " << num_bars << " Bars";
+  for (int i = 0; i < num_bars; i++) bars_.push_back(MakeBar(this));
+}
+```
+
+设置 `--verbosity` flag 可启用所有小于等于指定级别的 `VKLOG()` 消息，这可能会使日志难以阅读或占满磁盘。`--vmodule` flag 允许为不同源文件设置不同级别；参数为逗号分隔的 `key=value` 列表，其中 `key` 是匹配文件名的 glob，`value` 为对应的详细级别。也可以在运行时通过 `turbo::set_vlog_level` 和 `turbo::set_global_vlog_level` 修改详细级别：
+
+```c++
+class FooTest : public testing::Test {
+ protected:
+  FooTest() {
+    // 将 Foo 的 `VKLOG()` 级别调高，因为它默认日志较少：
+    turbo::set_vlog_level("foo_impl", 4);
+  }
+};
+```
+
+### 其他宏变体 {#mutators}
+
+日志 API 包含许多用于特殊情况的附加宏。
+
+* `QCHECK()` 类似 `kCHECK()`，与 `QFATAL` 的关系同 `kCHECK()` 与 `FATAL` 的关系：失败时不记录堆栈，也不运行 `atexit()` 处理器。
+
+```c++
+ int main (int argc, char**argv) {
+   turbo::ParseCommandLine(argc, argv);
+   QCHECK(!turbo::get_flag(FLAGS_path).empty()) << "--path is required";
+   ...
+  ```
+
+* `PKLOG()` 和 `PKCHECK()` 会自动在日志消息末尾附加 `errno` 的文本描述及其数值，适用于系统库调用失败时指示失败原因。其名称与 `perror` 函数对应。
+
+```c++
+   const int fd = open(path.c_str(), O_RDONLY);
+   PKCHECK(fd != -1) << "Failed to open " << path;
+
+   const ssize_t bytes_read = read(fd, buf, sizeof(buf));
+   PKCHECK(bytes_read != -1) << "Failed to read from " << path;
+
+   const int close_ret = close(fd);
+   if (close_ret == -1) PKLOG(WARNING) << "Failed to close " << path;
+  ```
+
+* `DKLOG()` ("debug log") 和 `DKCHECK()` 在优化构建中会完全消失。注意，`DKLOG(FATAL)` 和 `DKCHECK()` 的语义与 `KLOG(DFATAL)` 有很大不同。
+调试日志适用于收集在测试中有用但生产中代价高的信息（如获取竞争锁）：
+
+```c++
+DKLOG(INFO) << server.State();
+  ```
+
+谨慎使用 `DKCHECK()`；如果在测试中值得检查，生产中可能也值得：
+
+```c++
+DKCHECK(ptr != nullptr);
+ptr->Method();
+  ```
+
+`DKCHECK` 有时用于非常热点路径中的不变量检查，依赖测试中的检查来验证生产行为。
+类似 `assert()`，确保不要依赖 `DKCHECK` 和 `DKLOG` 的副作用：
+
+DKCHECK(server.Start());
+// 优化构建中，server 根本不会被启动！
+
+* `LOG_IF()` 增加条件参数，相当于 `if` 语句。类似 `if` 和三元运算符，条件会根据上下文转换为 `bool`。还存在 `PLOG_IF()` 和 `DLOG_IF()` 等变体。
+
+```c++
+LOG_IF(INFO, turbo::get_flag(FLAGS_dry_run))
+    << "--dry_run set; no changes will be made";
+  ```
+
+* `LOG_EVERY_N()`、`LOG_FIRST_N()`、`LOG_EVERY_N_SEC()` 和 `LOG_EVERY_POW_2()` 提供更复杂的条件，简单 `if` 难以实现。每条语句在存储中维护一个静态状态对象，用于判断何时再次记录日志。它们是线程安全的。
+token `COUNTER` 可以流式传入，会被替换为该语句执行的次数（包括已记录和未记录日志的次数）。还有带附加条件的宏变体（如 `LOG_IF_EVERY_N()`），以及与 `VKLOG()`、`PKLOG()`、`DLOG()` 的多种组合。
+
+```c++
+LOG_EVERY_N(WARNING, 1000) << "Got a packet with a bad CRC (" << COUNTER
+                          << " total)";
+  ```
+
+### 修改器方法
+
+`KLOG()` 和 `kCHECK()` 宏支持多个可链式调用的方法来改变行为。
+
+* `.AtLocation(std::string_view file, int line)`
+覆盖从调用点推断的位置。`file` 指向的字符串在语句结束前必须有效。
+
+* `.NoPrefix()`
+省略本条日志的 [前缀](#prefix)。前缀包含元数据，如源代码位置和时间戳。
+
+* `.WithVerbosity(int verbose_level)`
+设置日志消息的详细级别，类似由 `VLOG(verbose_level)` 生成。不同于 `VLOG()`，此方法不会影响语句在指定 `verbose_level` 禁用时是否被评估。仅影响使用 `turbo::LogSink::verbosity()` 的 `LogSink` 实现。可使用 `turbo::LogEntry::kNoVerbosityLevel` 表示该消息无详细级别。
+
+* `.WithTimestamp(turbo::Time timestamp)`
+使用指定时间戳，而不是执行时收集的时间戳。
+
+* `.WithThreadID(turbo::LogEntry::tid_t tid)`
+使用指定线程 ID，而不是执行时收集的线程 ID。
+
+* `.WithMetadataFrom(const turbo::LogEntry &entry)`
+从指定 `turbo::LogEntry` 复制所有元数据（不包括数据）。
+可用于修改消息的严重性，但有一些限制：
+
+* `TURBO_MIN_LOG_LEVEL` 以传给 `KLOG` 的严重性（或 `CHECK` 的隐式 `FATAL`）为依据。
+* `KLOG(FATAL)` 和 `kCHECK` 无条件终止进程，即使之后更改严重性也无效。
+
+* `.WithPerror()`
+在消息末尾附加冒号、空格、当前 `errno` 的文本描述（根据 `strerror(3)`）及其数值。效果等同于 `PKLOG()` 和 `PKCHECK()`。
+
+* `.ToSinkAlso(turbo::LogSink* sink)`
+将消息发送到 `*sink`，同时仍发送到其他原本会发送的 sink。`sink` 不能为空。
+
+* `.ToSinkOnly(turbo::LogSink* sink)`
+将消息仅发送到 `*sink`。`sink` 不能为空。
+
+## 日志消息输出 {#output}
+
+### 日志前缀 {#prefix}
+
+每条消息都带有如下元数据：
+
+```
+I0926 09:00:00.000000   12345 foo.cc:10] Hello world!
+```
+
+前缀以 `I` 开头，表示 `INFO` 级别，接着是日期 `0926`。时间为微秒，使用机器本地时区。`12345` 是线程 ID。`foo.cc:10` 是 `KLOG()` 语句在源代码中的位置，方括号和空格为固定分隔符。
+
+可以通过 `FLAGS_log_with_prefix` 全局 flag 或单条消息的 `.NoPrefix()` [修改器方法](#mutators) 来抑制前缀。
+
+### `stderr` 输出 {#stderr}
+
+默认情况下，会注册一个写入 `stderr` 的 `LogSink`。

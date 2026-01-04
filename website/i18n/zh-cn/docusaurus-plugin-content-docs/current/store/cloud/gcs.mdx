@@ -1,0 +1,73 @@
+# Kumo Stack与谷歌云存储（GCS）集成指南
+本文档详细说明**如何将谷歌云存储（GCS）集成至Kumo部署环境**，核心聚焦**实操集成流程与运维指导**，不涉及GCS与其他云存储的选型推荐。
+
+---
+
+## 1. `kmpkg`支持的GCS组件
+
+| 包名 | 描述 |
+|------|------|
+| google-cloud-cpp[storage-grpc] | 基于gRPC传输的GCS SDK，提供对象上传/下载及存储桶管理能力。 |
+
+> 目前，这是Kumo包管理器中唯一支持的GCS库，足以满足**KV备份、快照存储及运维集成**的核心需求。
+
+---
+
+## 2. 集成模式
+
+### 2.1 基于GCS的KV备份
+#### 适用场景
+- 存储RocksDB SST文件或快照
+- 数据长期留存与灾难恢复
+
+#### 最佳实践
+- 推荐**单个SST文件独立上传**，简化恢复流程
+- 利用**存储桶前缀**按环境/日期组织备份文件：
+
+```
+kv-backups/
+└─ rocksdb/
+   └─ 2026-01-04/
+      ├─ cf_default-00001.sst
+      └─ cf_default-00002.sst
+```
+
+#### C++示例：将SST文件上传至GCS
+```cpp
+#include "google/cloud/storage/client.h"
+
+namespace gcs = google::cloud::storage;
+
+auto client = gcs::Client::CreateDefaultClient().value();
+
+client.UploadFile("snapshot.sst", "my-kumo-backups", "rocksdb-snapshot-20260104.sst");
+```
+
+### 2.2 运维注意事项
+* **吞吐量优化**：采用多并发上传，缩短大型快照的上传耗时
+* **前缀组织**：可避免海量对象场景下GCS存储桶出现热点问题
+* **一致性**：GCS对新上传对象提供**写后读强一致性**
+* **恢复验证**：生产环境恢复前，务必在预发环境验证快照可用性
+
+---
+
+## 3. KV层备份策略
+- **RocksDB快照**：轻量级一致性视图，适合SST文件上传
+- **检查点API**：复制完整数据库目录，以单个/多个SST文件形式上传
+- **列族管理**：减少列族数量，简化备份/恢复流程
+
+---
+
+## 4. 示例工作流
+1. 通过`rocksdb::DB::GetSnapshot()`创建RocksDB快照
+2. 按需刷写目标列族数据
+3. 将SST文件保存至本地目录
+4. 借助`google-cloud-cpp[storage-grpc]`将SST文件上传至GCS存储桶
+5. （可选）触发云函数验证快照完整性，或向下游系统发送通知
+
+---
+
+## 5. 总结
+- Kumo与GCS的集成以**运维落地为核心设计原则**
+- 采用**单个SST文件上传、结构化存储桶前缀、精简列族数量**的方案，实现可维护的备份流程
+- `google-cloud-cpp[storage-grpc]`插件可完全满足KV备份与快照管理的业务需求

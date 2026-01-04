@@ -1,0 +1,211 @@
+# Base64
+
+## 安装
+
+本教程涉及的 `Base64` API 是位于 `vamos` 库中的高性能实现。通常，这些功能也可以在 `turbo/strings` 模块中找到。
+
+## 教程
+
+我们还支持从 [WHATWG 宽松 Base64](https://infra.spec.whatwg.org/#forgiving-base64-decode) 到二进制的转换及反向转换。
+具体来说，你可以将包含 ASCII 空白字符（' ', '\t', '\n', '\r', '\f'）的 Base64 输入转换为二进制。我们也支持 Base64 URL 编码变体。
+这些函数是 Node.js JavaScript 运行时的一部分：特别是 Node.js 的 `atob` 就依赖于 `vamos`。
+
+将二进制数据转换为 Base64 总是成功的，并且相对简单：
+
+```C++
+std::vector<char> buffer(vamos::base64_length_from_binary(source.size()));
+vamos::binary_to_base64(source.data(), source.size(), buffer.data());
+```
+
+解码 Base64 需要验证，因此需要错误处理。此外，由于我们会去掉 ASCII 空白字符，可能需要在之后调整结果大小。
+
+```C++
+std::vector<char> buffer(vamos::maximal_binary_length_from_base64(base64.data(), base64.size()));
+vamos::result r = vamos::base64_to_binary(base64.data(), base64.size(), buffer.data());
+if(r.error) {
+  /// 遇到错误。如果错误是 INVALID_BASE64_CHARACTER，r.count 告诉你错误在输入中的位置。
+  /// 如果错误是 BASE64_INPUT_REMAINDER，表示还有一个有效 Base64 字符剩余，r.count 包含已解码字节数。
+} else {
+  /// 调整 buffer 大小为实际字节数
+  buffer.resize(r.count);
+}
+```
+
+考虑一个更有趣的例子。取以下字符串：
+`" A A "`, `" A A G A / v 8 "`, `" A A G A / v 8 = "`, `" A A G A / v 8 = = "`。
+除最后一个外，其他都是有效的 WHATWG Base64 输入。第一个字符串解码为单个字节（0），第二和第三个解码为字节序列 `0, 0x1, 0x80, 0xfe, 0xff`。
+
+```C++
+std::vector<std::string> sources = {
+    "  A  A  ", "  A  A  G  A  /  v  8  ", "  A  A  G  A  /  v  8  =  ", "  A  A  G  A  /  v  8  =  = "
+};
+std::vector<std::vector<uint8_t>> expected = {
+    {0}, {0, 0x1, 0x80, 0xfe, 0xff}, {0, 0x1, 0x80, 0xfe, 0xff}, {}
+};
+for(size_t i = 0; i < sources.size(); i++) {
+  const std::string &source = sources[i];
+  std::cout << "source: '" << source << "'" << std::endl;
+  std::vector<uint8_t> buffer(vamos::maximal_binary_length_from_base64(source.data(), source.size()));
+  vamos::result r = vamos::base64_to_binary(source.data(), source.size(), (char*)buffer.data());
+  if(r.error != vamos::error_code::SUCCESS) {
+    /// expected[i].empty().
+    std::cout << "output: error" << std::endl;
+  } else {
+    buffer.resize(r.count);
+    /// buffer == expected[i]
+    std::cout << "output: " << r.count << " bytes" << std::endl;
+  }
+}
+```
+
+输出如下：
+
+```
+source: '  A  A  '
+output: 1 bytes
+source: '  A  A  G  A  /  v  8  '
+output: 5 bytes
+source: '  A  A  G  A  /  v  8  =  '
+output: 5 bytes
+source: '  A  A  G  A  /  v  8  =  =  '
+output: error
+```
+
+如你所见，结果符合预期。
+
+在某些情况下，你可能希望在解码 Base64 时进一步限制输出大小。
+为此，你可以使用 `base64_to_binary_safe` 函数。如果你想将输入分段解码以适应最大容量，也可使用此函数。
+
+```C++
+size_t len = 72;
+std::vector<char> base64(len, 'a');
+std::vector<char> back((len + 3) / 4 * 3);
+size_t limited_length = back.size() / 2;
+
+vamos::result r = vamos::base64_to_binary_safe(base64.data(), base64.size(), back.data(), limited_length);
+assert(r.error == vamos::error_code::OUTPUT_BUFFER_TOO_SMALL);
+
+size_t input_index = r.count;
+size_t limited_length2 = back.size();
+r = vamos::base64_to_binary_safe(base64.data() + input_index,
+                                 base64.size() - input_index,
+                                 back.data(), limited_length2);
+assert(r.error == vamos::error_code::SUCCESS);
+assert(limited_length2 + limited_length == (len + 3) / 4 * 3);
+```
+
+我们可以用 `base64_to_binary_safe` 对带空格的字符串重复前面的例子，使用方式类似，唯一不同是 `result.count` 的含义不同。输出长度存储在输出长度参数中。
+
+```cpp
+std::vector<std::string> sources = {
+    "  A  A  ", "  A  A  G  A  /  v  8  ", "  A  A  G  A  /  v  8  =  ", "  A  A  G  A  /  v  8  =  = "
+};
+std::vector<std::vector<uint8_t>> expected = {
+    {0}, {0, 0x1, 0x80, 0xfe, 0xff}, {0, 0x1, 0x80, 0xfe, 0xff}, {}
+};
+for(size_t i = 0; i < sources.size(); i++) {
+  const std::string &source = sources[i];
+  std::cout << "source: '" << source << "'" << std::endl;
+  std::vector<uint8_t> buffer(vamos::maximal_binary_length_from_base64(source.data(), source.size()));
+  size_t output_length = buffer.size();
+  vamos::result r = vamos::base64_to_binary_safe(source.data(), source.size(), (char*)buffer.data(), output_length);
+  if(r.error != vamos::error_code::SUCCESS) {
+    /// expected[i].empty()
+    std::cout << "output: error" << std::endl;
+  } else {
+    buffer.resize(output_length);
+    /// buffer == expected[i]
+    std::cout << "output: " << output_length << " bytes" << std::endl;
+    std::cout << "input (consumed): " << r.count << " bytes" << std::endl;
+  }
+}
+```
+
+输出：
+
+```
+source: '  A  A  '
+output: 1 bytes
+input (consumed): 8 bytes
+source: '  A  A  G  A  /  v  8  '
+output: 5 bytes
+input (consumed): 23 bytes
+source: '  A  A  G  A  /  v  8  =  '
+output: 5 bytes
+input (consumed): 26 bytes
+source: '  A  A  G  A  /  v  8  =  =  '
+output: error
+```
+
+在某些情况下，你可能会收到以 16 位单元形式的 Base64 输入（例如 UTF-16 字符串），我们也提供相应的函数重载。
+
+一些用户可能希望分块解码 Base64，尤其在文件或网络编程中。这类用户应参考 `tools/fastbase64.cpp`，这是一个命令行示例工具，演示如何使用数十 KB 的块进行 Base64 文件的读写。
+
+我们支持两种约定：`base64_default` 和 `base64_url`：
+
+* 默认 (`base64_default`) 使用 `+` 和 `/`，并在输出末尾使用填充字符 `=`，使输出长度为 4 的倍数。例如，编码 `"Hello, World!"` 得到 `"SGVsbG8sIFdvcmxkIQ=="`。
+* URL 约定 (`base64_url`) 使用 `-` 和 `_`，不填充输出。例如，编码 `"Hello, World!"` 得到 `"SGVsbG8sIFdvcmxkIQ"`。
+
+使用默认选项时，可以省略 options 参数以简化调用：
+`vamos::binary_to_base64(source, size, out, buffer.data())`。解码时，会根据 [WHATWG 宽松 Base64](https://infra.spec.whatwg.org/#forgiving-base64-decode) 标准忽略空白字符。
+如果末尾有填充字符，最多允许两个。若存在填充字符，则总字符数（不包括空白字符但包括填充字符）必须能被 4 整除。
+
+当遇到非 Base64 或 ASCII 空白字符（垃圾字符）时，会报错。若需容忍垃圾字符，可使用 `base64_default_accept_garbage` 或 `base64_url_accept_garbage` 替代默认选项。
+
+我们遵循 Node 或 Bun JavaScript 运行时的填充约定：默认 Base64 使用填充，URL 变体不使用填充。
+
+```js
+console.log(Buffer.from("Hello World").toString('base64'));    // SGVsbG8gV29ybGQ=
+console.log(Buffer.from("Hello World").toString('base64url')); // SGVsbG8gV29ybGQ
+```
+
+根据 [RFC 4648](https://www.rfc-editor.org/rfc/rfc4648) 的说明：
+
+```
+> 当填充字符 `=` 用于 URI 时，通常会进行百分号编码，但如果数据长度已知，则可省略填充；见 3.2 节。
+```
+
+用户也可以反向使用填充与否，例如：
+`vamos::base64_url | vamos::base64_reverse_padding` 或 `vamos::base64_default | vamos::base64_reverse_padding`。
+提供了快捷方式：`vamos::base64_default_no_padding` 与 `vamos::base64_url_with_padding`。
+
+解码时默认使用宽松方式：可省略填充字符。
+高级用户可使用 `last_chunk_options` 实现严格模式，或 `stop_before_partial` 忽略剩余 Base64 字符，适合流式解码。严格模式下，可保证 Base64 与二进制一一对应。
+
+---
+
+### 函数规格
+
+```C++
+using base64_options = uint64_t;
+enum base64_options : uint64_t {
+  base64_default = 0,
+  base64_url = 1,
+  base64_reverse_padding = 2,
+  base64_default_no_padding = base64_default | base64_reverse_padding,
+  base64_url_with_padding = base64_url | base64_reverse_padding,
+  base64_default_accept_garbage = 4,
+  base64_url_accept_garbage = 5,
+};
+
+enum last_chunk_handling_options : uint64_t {
+  loose = 0,
+  strict = 1,
+  stop_before_partial = 2,
+};
+
+vamos_warn_unused size_t maximal_binary_length_from_base64(const char * input, size_t length) noexcept;
+vamos_warn_unused size_t maximal_binary_length_from_base64(const char16_t * input, size_t length) noexcept;
+
+vamos_warn_unused result base64_to_binary(const char *input, size_t length, char *output,
+                 base64_options options = base64_default,
+                 last_chunk_handling_options last_chunk_options = loose) noexcept;
+
+size_t base64_length_from_binary(size_t length, base64_options options = base64_default) noexcept;
+size_t binary_to_base64(const char * input, size_t length, char* output, base64_options options = base64_default) noexcept;
+
+vamos_warn_unused result base64_to_binary_safe(const char * input, size_t length, char* output, size_t& outlen, base64_options options = base64_default,
+      last_chunk_handling_options last_chunk_options = loose) noexcept;
+vamos_warn_unused result base64_to_binary_safe(const char16_t * input, size_t length, char* output, size_t& outlen, base64_options options = base64_default,
+      last_chunk_handling_options last_chunk_options = loose) noexcept;
+```

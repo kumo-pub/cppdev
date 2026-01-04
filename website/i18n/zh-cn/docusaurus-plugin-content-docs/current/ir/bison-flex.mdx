@@ -1,0 +1,181 @@
+# Bison 与 Flex
+
+Bison 和 Flex 构成了传统的 **解析器生成工具链**，广泛用于 C/C++ 环境中。
+它们适用于需要 **自定义语言解析** 的场景，包括类 SQL 表达式、DSL 或表达式求值。
+
+---
+
+## 基本概念
+
+* **Flex（词法分析器）**：将输入文本分解为符号（token）
+* **Bison（语法分析器生成器）**：根据文法规则构建解析器，并生成解析树或 AST
+* 两者结合可构建完整的 **编译器式处理流水线**：
+`输入文本 -> 词法符号 -> AST/解析树 -> 执行/转换`
+
+---
+
+## 适用场景
+
+* C/C++ 项目的 **小型到中型 DSL**
+* **离线语言编译或代码生成**，需要对解析和 AST 有精细控制
+* C++ 后端系统中的 **实时 SQL 或表达式解析**；对于复杂文法，Bison 在 C++ 中几乎没有成熟替代方案
+
+> 传统业务应用通常 **不需要** 这种级别的 IR 或解析控制。
+
+---
+
+## 优势
+
+* 成熟稳定，适用于 C/C++ 生态
+* 可精细控制文法、解析和 AST 生成
+* 可直接与 C++ 代码集成
+* 有丰富的 **实际案例**，包括生产系统中的 SQL 解析器
+
+---
+
+## 注意事项
+
+* **建议使用 C 模式** 以获得更好生态兼容性；C++ 模式成熟度较低
+* 集成复杂度高于 PEGTL 或基于 proto 的 DSL 解析器
+* 解析性能与 **表达式复杂度** 和文法设计密切相关，包括 **回溯需求**
+* 更适合 **离线编译流水线**，而非高吞吐在线服务
+
+---
+
+## 最小示例
+
+以下示例展示了 **完整的 Flex -> Bison -> C++ 集成流水线**。
+
+**词法分析器（lexer.l）**
+
+```c
+%{
+#include "parser.tab.h"
+#include <cstdlib>
+%}
+
+%%
+SELECT          return SELECT;
+FROM            return FROM;
+WHERE           return WHERE;
+[0-9]+          { yylval.ival = atoi(yytext); return NUMBER; }
+[a-zA-Z_]+      { yylval.sval = strdup(yytext); return IDENTIFIER; }
+[ \t\n]+        /* 跳过空白 */
+.               return *yytext;
+%%
+```
+
+**语法分析器（parser.y）**
+
+```c
+%{
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+struct Column { string name; };
+struct Table { string name; };
+struct Condition { string expr; };
+struct Query {
+    vector<Column> columns;
+    Table table;
+    Condition condition;
+};
+Query parsedQuery;
+%}
+
+%union {
+    int ival;
+    char* sval;
+}
+
+%token SELECT FROM WHERE IDENTIFIER NUMBER
+%type <sval> IDENTIFIER
+%type <ival> NUMBER
+
+%%
+
+query:
+      SELECT select_list FROM table_name where_clause
+    ;
+
+select_list:
+      IDENTIFIER { parsedQuery.columns.push_back({$1}); free($1); }
+    | select_list ',' IDENTIFIER { parsedQuery.columns.push_back({$3}); free($3); }
+    ;
+
+table_name:
+      IDENTIFIER { parsedQuery.table.name = $1; free($1); }
+    ;
+
+where_clause:
+      WHERE condition { parsedQuery.condition.expr = $2; free($2); }
+    | /* 空 */ { parsedQuery.condition.expr = ""; }
+    ;
+
+condition:
+      IDENTIFIER '>' NUMBER
+      {
+          string cond = string($1) + ">" + to_string($3);
+          $$ = strdup(cond.c_str());
+          free($1);
+      }
+    ;
+%%
+```
+
+**C++ 集成（main.cpp）**
+
+```cpp
+#include <iostream>
+extern "C" {
+    int yyparse();
+    extern FILE* yyin;
+}
+
+int main() {
+    FILE* f = fopen("example.sql", "r");
+    if (!f) {
+        std::cerr << "无法打开文件" << std::endl;
+        return 1;
+    }
+    yyin = f;
+    yyparse();
+    fclose(f);
+    return 0;
+}
+```
+
+**CMake 构建示例**
+
+```cmake
+cmake_minimum_required(VERSION 3.10)
+project(sql_parser)
+
+find_package(FLEX REQUIRED)
+find_package(BISON REQUIRED)
+
+BISON_TARGET(Parser parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.tab.cpp)
+FLEX_TARGET(Lexer lexer.l ${CMAKE_CURRENT_BINARY_DIR}/lex.yy.cpp)
+ADD_FLEX_BISON_DEPENDENCY(Lexer Parser)
+
+add_executable(sql_parser main.cpp ${BISON_Parser_OUTPUTS} ${FLEX_Lexer_OUTPUTS})
+```
+
+---
+
+## 参考资料
+
+* [GNU Bison 官方](https://www.gnu.org/software/bison/)
+* [Flex 官方](https://westes.github.io/flex/)
+
+---
+
+### 总结
+
+* **集成复杂度**：中–高（需要 C/C++ 链接和内存管理）
+* **性能**：适合离线或有限在线解析，依赖文法复杂度
+* **最佳使用场景**：离线编译、表达式求值、C++ 后端 SQL 解析
+
+> 该最小示例展示了 **完整流水线集成**，对理解实际使用至关重要，而不仅仅是片段演示。

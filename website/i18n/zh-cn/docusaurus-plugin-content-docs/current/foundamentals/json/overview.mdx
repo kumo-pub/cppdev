@@ -1,0 +1,123 @@
+# merak json — 概览总结
+
+## 高性能 C++ JSON 解析/生成库
+
+merak json 基于 **Merak** 改造，保留 Merak 的 API 风格，并增强了 **Protocol Buffers (protobuf)** 支持。
+
+### 核心特点
+
+* **小而全**：支持 SAX 与 DOM 风格 API，SAX 解析器仅 ~500 行代码。
+* **性能优异**：解析速度接近 `strlen()`，支持 SSE2 / SSE4.2 加速。
+* **独立自给**：无 BOOST 或 STL 依赖。
+* **内存高效**：32/64 位机器上每个 JSON 值仅 16 字节（不含字符串），默认使用高速内存分配器。
+* **Unicode 友好**：支持 UTF-8/16/32（大/小端），可自动检测、验证和转码；支持代理对和 `"\u0000"`。
+
+更多特性可参考 [features.mdx](features.mdx)。
+
+---
+
+## v1.1 亮点（2016-08-25）
+
+* JSON Pointer 支持：更方便访问/修改 DOM
+* JSON Schema 支持：解析/生成时验证 JSON
+* 支持宽松 JSON 语法（注释、尾随逗号、NaN/Infinity）
+* 支持 C++11 range-based for 循环
+* 将 `Value` 内存开销从 24 字节降至 16 字节（x86-64）
+
+---
+
+## 平台兼容性
+
+* Windows (VC++ 2008/2010/2013) 32/64 位
+* GNU C++ 3.8.x on Cygwin
+* Clang 3.4 Mac OS X / iOS
+* Clang 3.4 Android NDK
+用户也可在自有平台编译并运行单元测试。
+
+---
+
+## 安装
+
+```bash
+kmpkg install merak
+```
+
+### 构建测试和示例步骤
+
+1. `git submodule update --init` 获取第三方子模块（Google Test）
+2. 在 merak 根目录下创建 `build` 目录
+3. `cmake ..` 配置构建（Windows 可用 cmake-gui）
+4. Windows：构建 solution；Linux：`make`
+可在 `bin` 目录获取可执行文件，`doc/html` 获取文档
+运行测试：`make test` 或 `ctest`（`ctest -V` 查看详细输出）
+5. 可用 `make install` 安装到系统目录，CMake 项目可通过 `find_package(Merak)` 使用
+
+---
+
+## 快速示例（DOM）
+
+```cpp
+#include "merak/json/document.h"
+#include "merak/json/writer.h"
+#include "merak/json/stringbuffer.h"
+#include <iostream>
+
+using namespace merak::json;
+
+int main() {
+    const char* json = "{\"project\":\"merak\",\"stars\":10}";
+    Document d;
+    d.Parse(json);
+
+    // 修改 DOM
+    Value& s = d["stars"];
+    s.SetInt(s.GetInt() + 1);
+
+    // 生成 JSON
+    StringBuffer buffer;
+    Writer<StringBuffer> writer(buffer);
+    d.Accept(writer);
+
+    std::cout << buffer.GetString() << std::endl; // {"project":"merak","stars":11}
+    return 0;
+}
+```
+
+执行流程可参考下图：
+
+import simpledom from '@site/static/img/merak/simpledom.png';
+
+<img src={simpledom}/>
+
+---
+
+## 示例分类
+
+### DOM API
+
+* [tutorial](https://github.com/kumose/merak/blob/master/example/tutorial/tutorial.cpp)：DOM 基本用法
+
+### SAX API
+
+* [simplereader](https://github.com/kumose/merak/blob/master/example/simplereader/simplereader.cpp)：打印 SAX 事件
+* [condense](https://github.com/kumose/merak/blob/master/example/condense/condense.cpp)：去除 JSON 空白
+* [pretty](https://github.com/kumose/merak/blob/master/example/pretty/pretty.cpp)：格式化 JSON
+* [capitalize](https://github.com/kumose/merak/blob/master/example/capitalize/capitalize.cpp)：字符串大写化
+* [messagereader](https://github.com/kumose/merak/blob/master/example/messagereader/messagereader.cpp)：SAX 消息解析
+* [serialize](https://github.com/kumose/merak/blob/master/example/serialize/serialize.cpp)：C++ 对象 → JSON
+* [jsonx](https://github.com/kumose/merak/blob/master/example/jsonx/jsonx.cpp)：SAX → JSONx (XML 格式)
+
+### Schema API
+
+* [schemavalidator](https://github.com/kumose/merak/blob/master/example/schemavalidator/schemavalidator.cpp)：JSON Schema 验证
+
+### 高级示例
+
+* [prettyauto](https://github.com/kumose/merak/blob/master/example/prettyauto/prettyauto.cpp)：自动处理任意 UTF 编码的 JSON
+* [parsebyparts](https://github.com/kumose/merak/blob/master/example/parsebyparts/parsebyparts.cpp)：C++ 线程分块解析 JSON
+* [filterkey](https://github.com/kumose/merak/blob/master/example/filterkey/filterkey.cpp)：删除指定 key
+* [filterkeydom](https://github.com/kumose/merak/blob/master/example/filterkey/filterkey.cpp)：使用生成器填充 DOM 后删除 key
+
+---
+
+总结：merak json 提供 **高性能、低内存、跨平台** 的 JSON 解析和生成能力，同时兼顾 **DOM/SAX 灵活性** 与 **protobuf 拓展**，适合嵌入式、高性能服务和跨平台应用。

@@ -1,0 +1,127 @@
+# Melon AtomicHashMap 简介
+
+`melon-atomic_hashmap` 是一个专为高并发场景设计的 **同步无锁哈希表**（UnorderedAssociativeContainer）实现。其主要目标是在多线程环境下提供极致性能（比 `tbb::concurrent_hash_map` 快约 2-5 倍）和低内存开销。
+
+特点：
+
+* 查找和迭代 **无等待**（wait-free）。
+* 插入操作 **键级锁粒度**（key-level lock）。
+* 内存开销极小，可使用固定 32 位 ID 代替元素指针。
+* 元素引用在 map 生命周期内始终有效。
+
+---
+
+## 1. 限制条件
+
+AtomicHashMap 在性能上非常优秀，但存在一些特殊限制：
+
+1. **删除元素不可回收**：删除的元素被永久 tombstone 化，不适合频繁删除场景。
+2. **仅支持 32 或 64 位 key**：这是因为 key 必须原子比较和交换（CAS）。
+3. **动态扩容性能下降**：如果初始容量估计不足，扩容会导致性能下降。
+4. **值修改需外部同步**：可以通过锁池（lock pool）或者使用 `melon::PackedSyncPtr<T>` 作为值类型来保证安全。
+5. **必须定义特殊保留 key**：用于表示空、已删除或锁定状态。
+
+> 更多限制和实现细节请参考 `melon/AtomicHashMap.h`。
+
+---
+
+## 2. 独特特性
+
+* **元素引用永远有效**：元素在扩容过程中不会移动，因为扩容是通过链式追加子哈希表（slabs）实现的。
+* **32-bit 唯一 ID**：每个元素可通过 `iterator::getIndex()` 获取唯一 ID，用于替代 64 位指针节省内存。
+* **迭代器永不失效**：可以在迭代过程中同时执行插入和删除操作，非常适合非阻塞序列化。
+
+---
+
+## 3. 使用示例
+
+```cpp
+class Counters {
+private:
+    AtomicHashMap<int64_t, int64_t> ahm;
+
+public:
+    explicit Counters(size_t numCounters) : ahm(numCounters) {}
+
+    void increment(int64_t obj_id) {
+        auto ret = ahm.insert(make_pair(obj_id, 1));
+        if (!ret.second) {
+            // obj_id 已存在，直接原子增加
+            NoBarrier_AtomicIncrement(&ret.first->second, 1);
+        }
+    }
+
+    int64_t getValue(int64_t obj_id) {
+        auto ret = ahm.find(obj_id);
+        return ret != ahm.end() ? ret->second : 0;
+    }
+
+    // 非阻塞序列化
+    string toString() {
+        string ret = "{\n";
+        ret.reserve(ahm.size() * 32);
+        for (const auto& e : ahm) {
+            ret += melon::to<string>(
+                "  [", e.first, ":", NoBarrier_Load(&e.second), "]\n");
+        }
+        ret += "}\n";
+        return ret;
+    }
+};
+```
+
+> 注意：AtomicHashMap **没有 `operator[]`**，避免不安全的线程访问模式。
+
+---
+
+## 4. 实现原理
+
+### 4.1 AtomicHashMap 结构
+
+* `AtomicHashMap` 是多个 **AtomicHashArray（AHA）** 子表的组合。
+* 初始化时只创建一个 AHA，扩容时追加新的子表。
+* 查找需要顺序探查各个子表（多子表越多，查找越慢）。
+
+### 4.2 AtomicHashArray 原理
+
+* **固定大小探测哈希表**（open-addressing / probing hash map）。
+* 哈希冲突通过检查后续元素解决。
+* 元素存储在数组中，保证缓存友好且无额外指针开销。
+
+**插入算法：**
+
+1. key hash-mod 计算槽位。
+2. 用 CAS 将该槽位设置为锁定状态。
+3. 写入 value 并将 key 恢复为实际值。
+4. CAS 失败则尝试下一个槽位，直到成功或表满。
+
+**查找算法：**
+
+* key hash-mod 得到槽位。
+* 检查 key：
+
+* 相同则返回引用
+* 空 key 则失败
+* 否则继续下一个槽位
+* **无需原子操作即可无等待访问**。
+
+**删除算法：**
+
+* 找到 key 后，CAS 将槽位置为保留的已删除 key 值。
+* CAS 成功返回成功，失败表示被竞争线程删除。
+
+---
+
+✅ **总结**
+
+| 特性     | 描述                        |
+| ------ | ------------------------- |
+| 元素引用   | 生命周期内始终有效                 |
+| 迭代器    | 永不失效，可边迭代边插入/删除           |
+| 并发访问   | 查找/迭代无等待，插入键级锁粒度          |
+| 删除     | Tombstone 永久存在，不可回收       |
+| Key 类型 | 仅 32/64 位                 |
+| 扩容     | 增加子表，过度增长会降低性能            |
+| 内存优化   | 可使用 32-bit ID 替代指针，减少内存占用 |
+
+`melon-atomic_hashmap` 非常适合 **高并发、低删除场景、容量已知的计数器或索引系统**。

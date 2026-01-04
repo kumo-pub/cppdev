@@ -1,1 +1,98 @@
-# brpc
+title: BRPC
+---
+
+# BRPC Overview
+
+BRPC is a high-performance RPC framework widely used in C++ backend services. In the Kumo ecosystem, it serves as the foundation for the internal **KRPC** framework.
+
+## 1. High-Performance Backend RPC
+
+BRPC is suitable for **single-machine high QPS, backend core services** that are latency-sensitive and require controlled CPU usage.
+
+- Typical backend scenarios:
+  - Internal storage services
+  - Search services
+  - Cache layers
+  - Distributed computation nodes
+
+- Supports asynchronous I/O, thread pool scheduling, and efficient object pooling.
+
+## 2. Kumo Evolution: KRPC
+
+Kumo has developed **KRPC** on top of BRPC, with the main goals of:
+
+1. **Enhancing performance**
+2. **Improving operational friendliness**
+
+KRPC fully covers BRPC functionality. For most business layers, **KRPC is the recommended choice** to reduce operational complexity.
+
+## 3. Retained Value of BRPC
+
+- When internal framework choices are limited, KRPC is preferred.
+- **Necessary scenario:** If the system needs to use BRAFT (Raft implementation), BRPC is required since KRPC currently does not support Raft natively.
+- BRPC can still be used independently, especially for high QPS backends or specific protocol requirements.
+
+## 4. Ecosystem and Integration
+
+- Supports HTTP/HTTPS, protobuf, Thrift, JSON, and other protocols.
+- Ecosystem is primarily **C++ backend**.
+- Integration complexity is slightly lower than gRPC, suitable for same-team or same-language calls.
+- Functional coverage and ecosystem support are sufficient for backend services.
+
+## 5. Operational Considerations
+
+- Provides debug, performance metrics, and thread scheduling tools, but operational cost is relatively higher.
+- High-QPS services should control CPU usage in the **50%-70% range** to avoid thread scheduling bottlenecks or queue blocking.
+- Memory pool management should be reasonable to avoid fragmentation or latency jitter during long-term runtime.
+
+## 6. Suitable Scenarios
+
+| Layer                  | Recommendation          | Notes                                                                 |
+|------------------------|-----------------------|-----------------------------------------------------------------------|
+| Business Entry Layer    | gRPC                  | Ecosystem integration more important, QPS requirement is moderate    |
+| Backend Core Layer      | KRPC or BRPC          | Pursue single-machine performance and low latency                     |
+| Online Service          | gRPC (< 30k QPS)      | Higher QPS backend → KRPC/BRPC                                        |
+
+## 7. Example Code (C++ Backend Server)
+
+```cpp
+#include <brpc/server.h>
+#include "example.pb.h"
+#include "example.pb.cc"
+
+class ExampleServiceImpl : public ExampleService {
+public:
+    void Echo(google::protobuf::RpcController* cntl_base,
+              const EchoRequest* request,
+              EchoResponse* response,
+              google::protobuf::Closure* done) override {
+        brpc::ClosureGuard done_guard(done);
+        response->set_message(request->message());
+    }
+};
+
+int main() {
+    brpc::Server server;
+
+    ExampleServiceImpl service_impl;
+    if (server.AddService(&service_impl, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+        LOG(ERROR) << "Fail to add service";
+        return -1;
+    }
+
+    brpc::ServerOptions options;
+    if (server.Start(8000, &options) != 0) {
+        LOG(ERROR) << "Fail to start server";
+        return -1;
+    }
+
+    server.RunUntilAskedToQuit();
+    return 0;
+}
+````
+
+> Key Points:
+>
+> * BRPC emphasizes **single-machine performance, asynchronous scheduling, and low latency**.
+> * KRPC covers BRPC functionality and improves operational friendliness, recommended as the default internal framework.
+> * BRPC is required when using BRAFT.

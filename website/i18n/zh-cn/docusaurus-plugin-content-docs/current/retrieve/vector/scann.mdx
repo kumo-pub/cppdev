@@ -1,0 +1,77 @@
+# SCANN (Scalable Nearest Neighbor) Overview
+
+- **Repository:** [https://github.com/google-research/google-research/tree/master/scann](https://github.com/google-research/google-research/tree/master/scann)
+- **Language:** C++ (Python bindings available; CPU/GPU hybrid support)
+
+## Purpose & Use Cases
+SCANN is an open-source vector similarity search library developed by Google Research, focused on **extreme scalability and tunable recall-speed tradeoffs** for high-dimensional vector datasets (100–10000 dimensions). Its core innovation is a hybrid index architecture that combines quantization and graph-based search, enabling high-throughput, low-latency retrieval for large-scale (100M–10B) vector datasets. It is suitable for:
+* Large-scale (100M+) high-dimensional vector approximate nearest neighbor (ANN) search with strict latency/throughput requirements.
+* Scenarios requiring fine-grained tuning of recall and speed (e.g., large-scale semantic search, recommendation systems).
+* Production-grade AI pipelines (Google internal use in search, recommendation, and computer vision applications).
+
+Typical applications include:
+* NLP (web-scale text embedding retrieval, semantic search for billions of documents).
+* Computer vision (large-scale image/video feature matching, face recognition for millions of identities).
+* Recommendation systems (user/item embedding matching for large-scale catalogs).
+
+## Algorithms Supported
+SCANN’s core is a **hybrid index architecture** (Google自研) that integrates multiple optimized components, rather than standalone traditional indexes:
+
+| Core Component          | Key Characteristics                                                                 | Role in SCANN Architecture               |
+|-------------------------|-------------------------------------------------------------------------------------|-------------------------------------------|
+| `Asymmetric Quantization` | Google自研非对称量化策略 – reduces vector size with minimal recall loss, optimized for query speed. | Reduces memory footprint and accelerates distance calculation. |
+| `IVF (Inverted File)`   | Optimized inverted file partitioning – coarse-grained vector clustering to narrow search scope. | Reduces search space for large-scale datasets. |
+| `Graph-Based Refinement` | Lightweight graph search (post-filtering step) – improves recall on top of quantized/IVF results. | Fine-grained nearest neighbor refinement for high recall. |
+| `BruteForce`            | Exact nearest neighbor search – baseline for recall comparison (CPU/GPU supported). | Small datasets or high-recall requirement scenarios. |
+
+> Note: SCANN does not expose standalone HNSW/KDTree/Annoy indexes – its core is a tightly integrated hybrid pipeline (IVF + quantization + graph refinement) optimized end-to-end by Google.
+
+## Core Technical Specifications
+### 1. Supported Metric Spaces
+SCANN supports mainstream metric spaces for numerical vectors (Google internal optimizations for high-dimensional data):
+
+| Metric Type       | Full Name                          | Support Status | Use Case                                  |
+|-------------------|------------------------------------|----------------|-------------------------------------------|
+| L2                | Euclidean Distance                 | Full (CPU/GPU) | General numerical vectors (image/video embeddings, dense features). |
+| Cosine            | Cosine Similarity/Distance         | Full (CPU/GPU) | Text embeddings (direction-based similarity, e.g., BERT/LLM outputs). |
+| Inner Product (IP)| Dot Product                        | Full (CPU/GPU) | Normalized vector similarity (equivalent to cosine for unit vectors). |
+
+> Note: Non-metric spaces (Jaccard/Hamming/L1/L∞) are not supported; no official custom preprocessing guidance for production.
+
+### 2. Supported Data Types
+SCANN is optimized for floating-point vectors, with GPU-accelerated support for low-precision types:
+
+| Data Type       | Precision | C++ Type          | Python Binding Mapping | CPU Support | GPU Support | Use Case                                  |
+|-----------------|-----------|-------------------|------------------------|-------------|-------------|-------------------------------------------|
+| Float32         | 32-bit    | `float`           | `numpy.float32`        | Full        | Full        | Default (optimal balance of speed/precision). |
+| Float16 (FP16)  | 16-bit    | `half`/`uint16_t` | `numpy.float16`        | Partial     | Full        | GPU-accelerated workloads (50% memory reduction). |
+| Int8            | 8-bit     | `int8_t`          | `numpy.int8`           | Partial     | Full        | Extreme memory-constrained GPU scenarios (4x compression). |
+| Float64 (Double)| 64-bit    | `double`          | `numpy.float64`        | Full        | No          | High-precision scientific computing only. |
+| Binary          | Bit-level | `uint8_t` (packed)| `numpy.uint8` (bitpacked)| No          | No          | Not supported (use Google’s other specialized libraries). |
+
+### 3. Dynamic Data Operations (Insert/Delete/Modify)
+SCANN is **optimized for static datasets** with limited dynamic update capabilities:
+
+| Operation               | Support Level                                                                 | Constraints                                                                 |
+|-------------------------|--------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| Incremental Insertion   | Partial (batch-only)                                                           | - Batch insertion only (10k+ vectors per batch, latency ~50ms/batch);<br/>- No single-vector real-time insertion;<br/>- Index rebuild required for large cumulative inserts (>10% of total vectors). |
+| Real-Time Deletion      | Not supported                                                                 | No native deletion API; "soft delete" (filter post-query) leads to query performance degradation. |
+| Vector Modification     | Not supported                                                                 | Must re-insert updated vectors (no in-place modification).                  |
+
+## Characteristics
+| Feature             | Description                                                                                   |
+|---------------------|-----------------------------------------------------------------------------------------------|
+| Incremental Updates | Batch-only insertion (limited); no deletion/modification; static dataset optimized.          |
+| Query Speed         | CPU: 1–5ms/query (100M 768-dim vectors); GPU: 0.1–0.5ms/query (100M vectors) – Google-optimized hybrid pipeline outperforms FAISS/HNSWLIB for large-scale datasets. |
+| Index Type          | Hybrid (IVF + asymmetric quantization + graph refinement) – Google自研end-to-end pipeline.    |
+| Scalability         | Handles up to 10B vectors (single-node/multi-node); optimized for distributed deployment.     |
+| Language Bindings   | C++ (full feature set), Python (core features – GPU tuning limited).                          |
+| GPU Support         | Native CUDA optimization (query/quantization/index build); multi-GPU support.                |
+| Non-Metric Support  | No native support (requires custom preprocessing).                                            |
+
+## Notes
+* SCANN’s core advantage is **Google asymmetric quantization + hybrid search pipeline** – it delivers better recall-speed tradeoffs than FAISS/HNSWLIB for 100M+ high-dimensional vectors.
+* GPU support is production-grade (Google internal use in search/recommendation) – far more optimized than community-driven GPU implementations.
+* Dynamic updates are not a focus – ideal for static/low-churn datasets (e.g., daily updated document embedding libraries), not real-time scenarios (e.g., sub-second user behavior embedding insertion).
+* Limitations: No non-metric space support; Python bindings lack advanced GPU tuning; no official distributed deployment toolkit (Google internal only); community maintenance is slow (tied to Google Research updates).
+* Best Practices: Use SCANN for 100M+ static high-dimensional vectors (CPU/GPU hybrid); pair with Redis for hot data caching; use batch insertion for weekly/daily updates.

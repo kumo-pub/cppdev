@@ -14,5 +14,509 @@
   "sidebar.tutorialSidebar.category.Tutorial - Extras": {
     "message": "Tutorial - Extras",
     "description": "The label for category 'Tutorial - Extras' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Foundamentals": {
+    "message": "基础开发",
+    "description": "The label for category 'Foundamentals' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Foundamentals.link.generated-index.title": {
+    "message": "基础开发",
+    "description": "The generated-index page title for category 'Foundamentals' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Foundamentals.link.generated-index.description": {
+    "message": "Kumo's 基础开发导航!",
+    "description": "The generated-index page description for category 'Foundamentals' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Performance Testing and Unit Testing": {
+    "message": "性能测试与单元测试",
+    "description": "The label for category 'Performance Testing and Unit Testing' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.doctest Unit Testing": {
+    "message": "doctest单元测试",
+    "description": "The label for category 'doctest Unit Testing' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.doctest Unit Testing.link.generated-index.title": {
+    "message": "doctest单元测试",
+    "description": "The generated-index page title for category 'doctest Unit Testing' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.doctest Unit Testing.link.generated-index.description": {
+    "message": "使用 `doctest` 进行单元测试",
+    "description": "The generated-index page description for category 'doctest Unit Testing' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Google Test": {
+    "message": "Google Test",
+    "description": "The label for category 'Google Test' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Google Test.link.generated-index.title": {
+    "message": "Kumo test",
+    "description": "The generated-index page title for category 'Google Test' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Google Test.link.generated-index.description": {
+    "message": "Kumo test",
+    "description": "The generated-index page description for category 'Google Test' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.benchmark": {
+    "message": "benchmark",
+    "description": "The label for category 'benchmark' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Log Section": {
+    "message": "日志",
+    "description": "The label for category 'Log Section' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.get start": {
+    "message": "快速开始",
+    "description": "The label for category 'get start' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.get start.link.generated-index.title": {
+    "message": "starts",
+    "description": "The generated-index page title for category 'get start' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.get start.link.generated-index.description": {
+    "message": "using log！",
+    "description": "The generated-index page description for category 'get start' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Log Tutorial": {
+    "message": "教程",
+    "description": "The label for category 'Log Tutorial' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Log Tutorial.link.generated-index.title": {
+    "message": "教程",
+    "description": "The generated-index page title for category 'Log Tutorial' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Log Tutorial.link.generated-index.description": {
+    "message": "教程",
+    "description": "The generated-index page description for category 'Log Tutorial' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Standardized Errors and Error Return Values": {
+    "message": "标准化错误与错误返回值",
+    "description": "The label for category 'Standardized Errors and Error Return Values' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Standardized Errors and Error Return Values.link.generated-index.title": {
+    "message": "标准化错误与错误返回值",
+    "description": "The generated-index page title for category 'Standardized Errors and Error Return Values' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Standardized Errors and Error Return Values.link.generated-index.description": {
+    "message": "标准化错误与错误返回值!",
+    "description": "The generated-index page description for category 'Standardized Errors and Error Return Values' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.strings operations": {
+    "message": "strings 操作",
+    "description": "The label for category 'strings operations' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Codec": {
+    "message": "编码与解码",
+    "description": "The label for category 'Codec' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Map Containers": {
+    "message": "map容器",
+    "description": "The label for category 'Map Containers' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Compression": {
+    "message": "压缩与解压缩",
+    "description": "The label for category 'Compression' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Fiber And Future": {
+    "message": "Fiber And Future",
+    "description": "The label for category 'Fiber And Future' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.monitor": {
+    "message": "监控",
+    "description": "The label for category 'monitor' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.filesystem": {
+    "message": "文件系统",
+    "description": "The label for category 'filesystem' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.json": {
+    "message": "json",
+    "description": "The label for category 'json' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.rpc": {
+    "message": "rpc远程调用",
+    "description": "The label for category 'rpc' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.krpc": {
+    "message": "krpc",
+    "description": "The label for category 'krpc' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.Retrieve": {
+    "message": "检索开发",
+    "description": "The label for category 'Retrieve' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.bitmap": {
+    "message": "bitmap",
+    "description": "The label for category 'bitmap' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.vector": {
+    "message": "vector",
+    "description": "The label for category 'vector' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.trie": {
+    "message": "trie",
+    "description": "The label for category 'trie' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.nlp": {
+    "message": "nlp",
+    "description": "The label for category 'nlp' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.regex": {
+    "message": "regex",
+    "description": "The label for category 'regex' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.store": {
+    "message": "存储",
+    "description": "The label for category 'store' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.kv": {
+    "message": "kv",
+    "description": "The label for category 'kv' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.rocksdb": {
+    "message": "rocksdb",
+    "description": "The label for category 'rocksdb' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.rocksdb.link.generated-index.title": {
+    "message": "rocksdb",
+    "description": "The generated-index page title for category 'rocksdb' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.rocksdb.link.generated-index.description": {
+    "message": "using rocksdb！",
+    "description": "The generated-index page description for category 'rocksdb' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.cloud": {
+    "message": "cloud",
+    "description": "The label for category 'cloud' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.format": {
+    "message": "格式化",
+    "description": "The label for category 'format' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.IR": {
+    "message": "IR",
+    "description": "The label for category 'IR' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.advance": {
+    "message": "进阶开发",
+    "description": "The label for category 'advance' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.ml": {
+    "message": "ml",
+    "description": "The label for category 'ml' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.compute": {
+    "message": "compute",
+    "description": "The label for category 'compute' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.gpu": {
+    "message": "gpu",
+    "description": "The label for category 'gpu' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.simd": {
+    "message": "simd",
+    "description": "The label for category 'simd' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.raft": {
+    "message": "raft",
+    "description": "The label for category 'raft' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.tensor": {
+    "message": "tensor",
+    "description": "The label for category 'tensor' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.integrationSidebar.category.a-": {
+    "message": "a-",
+    "description": "The label for category 'a-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.a-.link.generated-index.title": {
+    "message": "a-",
+    "description": "The generated-index page title for category 'a-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.a-.link.generated-index.description": {
+    "message": "a start",
+    "description": "The generated-index page description for category 'a-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.b-": {
+    "message": "b-",
+    "description": "The label for category 'b-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.b-.link.generated-index.title": {
+    "message": "b-",
+    "description": "The generated-index page title for category 'b-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.b-.link.generated-index.description": {
+    "message": "b start",
+    "description": "The generated-index page description for category 'b-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.c-": {
+    "message": "c-",
+    "description": "The label for category 'c-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.c-.link.generated-index.title": {
+    "message": "c-",
+    "description": "The generated-index page title for category 'c-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.c-.link.generated-index.description": {
+    "message": "c start",
+    "description": "The generated-index page description for category 'c-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.d-": {
+    "message": "d-",
+    "description": "The label for category 'd-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.d-.link.generated-index.title": {
+    "message": "d-",
+    "description": "The generated-index page title for category 'd-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.d-.link.generated-index.description": {
+    "message": "d start",
+    "description": "The generated-index page description for category 'd-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.e-": {
+    "message": "e-",
+    "description": "The label for category 'e-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.e-.link.generated-index.title": {
+    "message": "e-",
+    "description": "The generated-index page title for category 'e-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.e-.link.generated-index.description": {
+    "message": "e start",
+    "description": "The generated-index page description for category 'e-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.f-": {
+    "message": "f-",
+    "description": "The label for category 'f-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.f-.link.generated-index.title": {
+    "message": "f-",
+    "description": "The generated-index page title for category 'f-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.f-.link.generated-index.description": {
+    "message": "f start",
+    "description": "The generated-index page description for category 'f-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.g-": {
+    "message": "g-",
+    "description": "The label for category 'g-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.g-.link.generated-index.title": {
+    "message": "g-",
+    "description": "The generated-index page title for category 'g-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.g-.link.generated-index.description": {
+    "message": "g start",
+    "description": "The generated-index page description for category 'g-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.h-": {
+    "message": "h-",
+    "description": "The label for category 'h-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.h-.link.generated-index.title": {
+    "message": "h-",
+    "description": "The generated-index page title for category 'h-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.h-.link.generated-index.description": {
+    "message": "h start",
+    "description": "The generated-index page description for category 'h-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.i-": {
+    "message": "i-",
+    "description": "The label for category 'i-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.i-.link.generated-index.title": {
+    "message": "i-",
+    "description": "The generated-index page title for category 'i-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.i-.link.generated-index.description": {
+    "message": "i start",
+    "description": "The generated-index page description for category 'i-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.j-": {
+    "message": "j-",
+    "description": "The label for category 'j-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.j-.link.generated-index.title": {
+    "message": "j-",
+    "description": "The generated-index page title for category 'j-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.j-.link.generated-index.description": {
+    "message": "j start",
+    "description": "The generated-index page description for category 'j-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.k-": {
+    "message": "k-",
+    "description": "The label for category 'k-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.k-.link.generated-index.title": {
+    "message": "k-",
+    "description": "The generated-index page title for category 'k-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.k-.link.generated-index.description": {
+    "message": "k start",
+    "description": "The generated-index page description for category 'k-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.l-": {
+    "message": "l-",
+    "description": "The label for category 'l-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.l-.link.generated-index.title": {
+    "message": "l-",
+    "description": "The generated-index page title for category 'l-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.l-.link.generated-index.description": {
+    "message": "l start",
+    "description": "The generated-index page description for category 'l-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.m-": {
+    "message": "m-",
+    "description": "The label for category 'm-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.m-.link.generated-index.title": {
+    "message": "m-",
+    "description": "The generated-index page title for category 'm-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.m-.link.generated-index.description": {
+    "message": "m start",
+    "description": "The generated-index page description for category 'm-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.n-": {
+    "message": "n-",
+    "description": "The label for category 'n-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.n-.link.generated-index.title": {
+    "message": "n-",
+    "description": "The generated-index page title for category 'n-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.n-.link.generated-index.description": {
+    "message": "n start",
+    "description": "The generated-index page description for category 'n-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.o-": {
+    "message": "o-",
+    "description": "The label for category 'o-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.o-.link.generated-index.title": {
+    "message": "o-",
+    "description": "The generated-index page title for category 'o-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.o-.link.generated-index.description": {
+    "message": "o start",
+    "description": "The generated-index page description for category 'o-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.p-": {
+    "message": "p-",
+    "description": "The label for category 'p-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.p-.link.generated-index.title": {
+    "message": "p-",
+    "description": "The generated-index page title for category 'p-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.p-.link.generated-index.description": {
+    "message": "p start",
+    "description": "The generated-index page description for category 'p-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.r-": {
+    "message": "r-",
+    "description": "The label for category 'r-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.r-.link.generated-index.title": {
+    "message": "r-",
+    "description": "The generated-index page title for category 'r-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.r-.link.generated-index.description": {
+    "message": "r start",
+    "description": "The generated-index page description for category 'r-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.s-": {
+    "message": "s-",
+    "description": "The label for category 's-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.s-.link.generated-index.title": {
+    "message": "s-",
+    "description": "The generated-index page title for category 's-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.s-.link.generated-index.description": {
+    "message": "s start",
+    "description": "The generated-index page description for category 's-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.t-": {
+    "message": "t-",
+    "description": "The label for category 't-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.t-.link.generated-index.title": {
+    "message": "t-",
+    "description": "The generated-index page title for category 't-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.t-.link.generated-index.description": {
+    "message": "t start",
+    "description": "The generated-index page description for category 't-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.u-": {
+    "message": "u-",
+    "description": "The label for category 'u-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.u-.link.generated-index.title": {
+    "message": "u-",
+    "description": "The generated-index page title for category 'u-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.u-.link.generated-index.description": {
+    "message": "u start",
+    "description": "The generated-index page description for category 'u-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.v-": {
+    "message": "v-",
+    "description": "The label for category 'v-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.v-.link.generated-index.title": {
+    "message": "v-",
+    "description": "The generated-index page title for category 'v-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.v-.link.generated-index.description": {
+    "message": "v start",
+    "description": "The generated-index page description for category 'v-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.x-": {
+    "message": "x-",
+    "description": "The label for category 'x-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.x-.link.generated-index.title": {
+    "message": "x-",
+    "description": "The generated-index page title for category 'x-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.x-.link.generated-index.description": {
+    "message": "x start",
+    "description": "The generated-index page description for category 'x-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.y-": {
+    "message": "y-",
+    "description": "The label for category 'y-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.y-.link.generated-index.title": {
+    "message": "y-",
+    "description": "The generated-index page title for category 'y-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.y-.link.generated-index.description": {
+    "message": "y start",
+    "description": "The generated-index page description for category 'y-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.z-": {
+    "message": "z-",
+    "description": "The label for category 'z-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.z-.link.generated-index.title": {
+    "message": "z-",
+    "description": "The generated-index page title for category 'z-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.integrationSidebar.category.z-.link.generated-index.description": {
+    "message": "z start",
+    "description": "The generated-index page description for category 'z-' in sidebar 'integrationSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.krpc.link.generated-index.title": {
+    "message": "krpc docs",
+    "description": "The generated-index page title for category 'krpc' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.krpc.link.generated-index.description": {
+    "message": "krcp docs!",
+    "description": "The generated-index page description for category 'krpc' in sidebar 'tutorialSidebar'"
   }
 }

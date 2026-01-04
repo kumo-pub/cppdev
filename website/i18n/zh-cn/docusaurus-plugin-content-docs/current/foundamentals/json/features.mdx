@@ -1,0 +1,126 @@
+# 功能特性
+
+## 整体特性
+
+* **跨平台**
+
+* 编译器：Visual Studio、GCC、Clang 等
+* 架构：x86、x64、ARM 等
+* 操作系统：Windows、Mac OS X、Linux、iOS、Android 等
+* **易于安装**
+
+* 头文件库（Header-only），只需将头文件拷贝到项目中即可
+* **自包含，依赖最少**
+
+* 无需依赖 STL、BOOST 或其他库
+* 仅依赖 `<cstdio>`、`<cstdlib>`、`<cstring>`、`<inttypes.h>`、`<new>`、`<stdint.h>`
+* **不使用 C++ 异常或 RTTI**
+* **高性能**
+
+* 使用模板和内联函数以降低函数调用开销
+* 内部优化的 Grisu2 和浮点解析实现
+* 可选 SSE2/SSE4.2 支持
+
+## 标准兼容性
+
+* 完全遵循 RFC4627/ECMA-404 标准
+* 支持 JSON Pointer (RFC6901)
+* 支持 JSON Schema Draft v4
+* 支持 Unicode 代理对（surrogate pairs）
+* 支持空字符 (`"\u0000"`)
+
+* 例如，可以优雅地解析和处理 `["Hello\u0000World"]`，提供 API 读取/写入字符串长度
+* 支持可选的宽松语法
+
+* 单行 (`// ...`) 和多行 (`/* ... */`) 注释 (`kParseCommentsFlag`)
+* 对象和数组末尾允许拖尾逗号 (`kParseTrailingCommasFlag`)
+* `NaN`、`Inf`、`Infinity`、`-Inf`、`-Infinity` 可作为 `double` 值 (`kParseNanAndInfFlag`)
+* [兼容 NPM](https://github.com/kumose/merak/blob/master/doc/npm.md)
+
+## Unicode
+
+* 支持 UTF-8、UTF-16 和 UTF-32 编码（包括小端和大端）
+
+* 可用于输入/输出流以及内存表示
+* 支持从输入流自动检测编码
+* 内置编码转码支持
+
+* 例如，可读取 UTF-8 文件并将 JSON 字符串转码为 UTF-16 DOM
+* 内置编码验证支持
+
+* 例如，可读取 UTF-8 文件并检查 JSON 字符串是否为有效 UTF-8 序列
+* 支持自定义字符类型
+
+* 默认字符类型：UTF-8 使用 `char`，UTF-16 使用 `wchar_t`，UTF-32 使用 `uint32_t`
+* 支持自定义编码
+
+## API 风格
+
+* **SAX 风格 API**
+
+* 类似 [SAX](http://en.wikipedia.org/wiki/Simple_API_for_XML)，提供基于事件的顺序访问解析器 API (`merak::json::GenericReader`)
+* 也提供处理同一事件集的生成器 API (`merak::json::Writer`)
+* **DOM 风格 API**
+
+* 类似 HTML/XML 的 [DOM](http://en.wikipedia.org/wiki/Document_Object_Model)，可将 JSON 解析为 DOM 表示 (`merak::json::GenericDocument`) 以便操作
+* DOM 可重新转为 JSON 字符串
+* DOM 风格 API (`GenericDocument`) 实际上是基于 SAX 风格 API (`GenericReader`) 实现的
+* SAX 更快，但 DOM 使用更方便，用户可根据需求选择
+
+## 解析
+
+* 支持递归（默认）和迭代解析器
+
+* 递归解析器速度快，但极端情况下可能导致栈溢出
+* 迭代解析器使用自定义栈维护解析状态
+* 支持原地（in situ）解析
+
+* 直接将 JSON 字符串值解析到原始 JSON 缓冲区，DOM 指向这些字符串
+* 比普通解析更快：无需为字符串分配内存，无需复制（如果字符串无转义字符），且缓存友好
+* 对 JSON 数值类型，支持 32/64 位有符号/无符号整数以及 `double`
+* 错误处理
+
+* 支持详细解析错误码
+* 支持本地化错误信息
+
+## DOM（文档）
+
+* 类型转换时检查数值范围
+* 字符串字面量优化
+
+* 仅存储指针，无拷贝
+* 短字符串优化
+
+* 短字符串存储在 `Value` 内部，无需额外分配
+* UTF-8 字符串：32 位架构最多 11 个字符，64 位架构最多 21 个字符（x86-64 为 13 个字符）
+* 可选支持 `std::string`（定义 `RAPIDJSON_HAS_STDSTRING=1`）
+
+## 生成
+
+* 支持 `merak::json::PrettyWriter`，可添加换行和缩进
+
+## 输入/输出流
+
+* 支持 `merak::json::GenericStringBuffer` 将 JSON 输出存入字符串
+* 支持 `merak::json::FileReadStream` 与 `FileWriteStream`，使用 `FILE` 对象进行输入/输出
+* 支持自定义输入/输出流
+
+## 内存
+
+* 最小化 DOM 内存开销
+
+* 在大多数 32/64 位机器上，每个 JSON 值仅占 16 或 20 字节（不含字符串）
+* 支持快速默认分配器
+
+* 基于栈分配（顺序分配，无单独释放—适合解析）
+* 用户可提供预分配缓冲区（在某些情况下，可解析多个 JSON 而无需 CRT 分配）
+* 支持标准 CRT（C 运行时）分配器
+* 支持自定义分配器
+
+## 其他
+
+* 可选支持部分 C++11 特性
+
+* 右值引用（Rvalue references）
+* `noexcept` 说明符
+* 范围基于的 `for` 循环

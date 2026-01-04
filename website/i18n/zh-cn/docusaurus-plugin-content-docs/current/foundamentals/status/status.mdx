@@ -1,0 +1,186 @@
+# 标准化返回值（Standardized Return Values）
+
+Turbo 在 `turbo/utility` 目录下包含两个 Status 库：
+
+* 一个 "status" 库，包含 `turbo::Status` 类（用于存储错误信息）、标准化的 `turbo::StatusCode` 错误码，以及生成和传播状态码的相关工具。
+* 一个 "statusor" 库，包含 `turbo::Result<T>` 模板类，可返回 `turbo::Status` 错误或类型为 `T` 的对象。`Result<T>` 类似于 [C++23 的 `std::expected`](https://en.cppreference.com/w/cpp/utility/expected)。
+
+---
+
+## `turbo::Status` 概览 {#overview}
+
+在 Kumo 中，`turbo::Status` 是跨 API 边界（尤其是跨 RPC）优雅处理错误的主要机制。部分错误可恢复，部分不可恢复。
+
+* 函数可能产生可恢复错误时，应返回 `turbo::Status` 或 `turbo::Result<T>`。
+* `Status` 用于返回操作结果：成功（`OK`）或特定错误码。
+* `StatusCode` 错误码在整个代码库中统一使用，可跨 API/RPC 边界传递。
+* 返回 Status 的函数必须显式处理结果（标记 `TURBO_MUST_USE_RESULT`）。
+
+---
+
+## 使用 Status 返回错误
+
+操作成功时返回 `OK`（`turbo::StatusCode::kOk`），否则返回特定错误码（如 `kInvalidArgument`）。Turbo 提供便捷构造函数生成标准错误码。
+
+示例：
+
+```c++
+turbo::Status Open(turbo::string_view filename, turbo::string_view mode, ...) {
+  if (...) return turbo::OkStatus();  // 成功
+  if (...) return turbo::InvalidArgumentError("bad mode");
+
+  turbo::Status result;  // 默认 OK
+  if (...) {
+    result = turbo::NotFoundError(turbo::StrCat(filename, " is missing"));
+  } else {
+    ...
+  }
+  return result;  // 返回 OK 或 NOT_FOUND
+}
+```
+
+* 非 OK 状态通常包含：
+
+* 错误码（如 `kNotFound`）
+* 错误信息（如 `"file.txt is missing"`）
+
+> 低级 API（如文件操作）通常不直接记录日志，而是将 Status 返回给调用者，由调用者处理。
+
+---
+
+## 标准错误码 {#canonical_errors}
+
+Turbo 提供通用标准错误码，用于统一处理错误。构造 Status 时，可在消息中提供上下文信息。
+
+完整错误码列表请参考：[Standardized Error Codes](status-codes.mdx)。
+
+---
+
+## 错误检查 {#check-errors}
+
+调用者必须检查 Status，判断操作是否成功（`OK`），失败时决定处理方式。
+
+推荐使用 `Status::ok()`：
+
+```c++
+turbo::Status my_status = DoSomething();
+// 不建议：
+// if (my_status.code() == turbo::StatusCode::kOk) { ... }
+
+if (!my_status.ok()) {
+  LOG(WARNING) << "Unexpected error " << my_status;
+}
+```
+
+* 可使用辅助函数检查特定错误码，如 `turbo::IsInvalidArgument(status)`。
+* 多错误码可用 `switch` 处理，只处理可处理错误；不可处理的错误应记录或向上传播。
+* `switch` 应提供 `default:`，防止新增错误码导致异常。
+
+示例：
+
+```c++
+turbo::Status s = Open(filename, "r");
+if (turbo::IsNotFound(s)) {
+  s = Create(...);
+}
+if (!s.ok()) {
+  LOG(WARNING) << "Unexpected error " << s;
+}
+```
+
+---
+
+## 返回 Status 或值
+
+函数既可能返回值又可能返回错误时，可使用 `turbo::Result<T>`：
+
+* `Result<T>` 包含对象 `T` 或 `Status`
+* 成功时持有对象，失败时持有 Status
+
+示例：
+
+```c++
+Result<Foo> result = Calculation();
+if (result.ok()) {
+  result->DoSomethingCool();
+} else {
+  LOG(ERROR) << result.status();
+}
+```
+
+访问对象：
+
+```c++
+turbo::Result<int> i = GetCount();
+if (i.ok()) {
+  updated_total += *i;
+}
+```
+
+* `Result<T*>` 可为 nullptr，`ok()` 返回 true，`value()` 返回 nullptr
+* 检查指针时需注意：
+
+```c++
+Result<std::unique_ptr<Foo>> result = FooFactory::MakeNewFoo(arg);
+if (!result.ok()) {
+  LOG(ERROR) << result.status();
+} else if (*result == nullptr) {
+  LOG(ERROR) << "Unexpected null pointer";
+} else {
+  (*result)->DoSomethingCool();
+}
+```
+
+---
+
+## 忽略 Status 结果
+
+忽略 Status 可能是错误行为。如确实需要，可用 `ignore_error()`：
+
+```c++
+// 缓存错误不影响响应
+StoreInCache(request, response).ignore_error();
+```
+
+---
+
+## 记录首个错误
+
+使用 `Status::update()` 记录序列中首次出现的非 OK 错误：
+
+* 会覆盖 OK 状态
+* 不会覆盖已有错误
+
+示例：
+
+```c++
+turbo::Status s = Operation1();
+s.update(Operation2());  // 保留第一个错误信息
+```
+
+---
+
+## 检查宏
+
+Turbo 提供宏快速检查 Status：
+
+```c++
+turbo::Status good_func() {
+    return turbo::Status();
+}
+
+turbo::Status not_found_func() {
+    return turbo::Status(turbo::StatusCode::kNotFound,"bad");
+}
+
+turbo::Status call_func() {
+    STATUS_RETURN_IF_ERROR(some_func());
+    std::cout<<"this should display"<<std::endl;
+    STATUS_RETURN_IF_ERROR(some_func());
+    std::cout<<"this should not display"<<std::endl;
+    return turbo::Status();
+}
+```
+
+* 宏在 Status 非 OK 时直接返回，减少重复错误检查。
+

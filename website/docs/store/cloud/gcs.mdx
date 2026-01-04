@@ -1,0 +1,87 @@
+---
+title: Google Cloud Storage Integration
+---
+
+# Google Cloud Storage (GCS) Integration with Kumo Stack
+
+This document describes **how to integrate Google Cloud Storage (GCS) into a Kumo deployment**.
+Focus is **practical integration and operational guidance**, not recommending GCS over other clouds.
+
+---
+
+## 1. Supported GCS Component via `kmpkg`
+
+| Package | Description |
+|---------|-------------|
+| google-cloud-cpp[storage-grpc] | GCS SDK using gRPC transport. Provides upload/download of objects and bucket management. |
+
+> Currently, this is the only supported GCS library in Kumo’s package manager. It is sufficient for **KV backup, snapshot storage, and operational integration**.
+
+---
+
+## 2. Integration Patterns
+
+### 2.1 KV Backup to GCS
+
+**Use Cases:**
+- Store RocksDB SST files or snapshots.
+- Long-term retention and disaster recovery.
+
+**Best Practices:**
+- Prefer **single SST file uploads** to simplify restores.
+- Use **bucket prefixes** to organize backups by environment/date:
+
+```
+
+kv-backups/
+└─ rocksdb/
+└─ 2026-01-04/
+├─ cf_default-00001.sst
+└─ cf_default-00002.sst
+
+````
+
+**C++ Example: Upload SST to GCS**
+
+```cpp
+#include "google/cloud/storage/client.h"
+
+namespace gcs = google::cloud::storage;
+
+auto client = gcs::Client::CreateDefaultClient().value();
+
+client.UploadFile("snapshot.sst", "my-kumo-backups", "rocksdb-snapshot-20260104.sst");
+````
+
+### 2.2 Operational Notes
+
+* **Throughput:** Use multiple concurrent uploads to optimize large snapshot upload times.
+* **Prefix Organization:** Helps prevent hot-spotting in GCS buckets for very large numbers of objects.
+* **Consistency:** GCS offers **strong read-after-write consistency** for new objects.
+* **Restore:** Always verify snapshot restore on staging environment.
+
+---
+
+## 3. KV Layer Backup Strategy
+
+* **RocksDB Snapshots:** Lightweight consistent views for SST upload.
+* **Checkpoint API:** Copy full directory and upload as single or multiple SST files.
+* **Column Families:** Minimize CFs to simplify backup/restore.
+
+---
+
+## 4. Example Workflow
+
+1. Take RocksDB snapshot via `rocksdb::DB::GetSnapshot()`.
+2. Flush required column families.
+3. Save SST files locally.
+4. Upload SST files to GCS bucket using `google-cloud-cpp[storage-grpc]`.
+5. Optionally trigger a cloud function to validate snapshot or notify downstream systems.
+
+---
+
+## 5. Summary
+
+* Kumo GCS integration focuses on **operational-first design**.
+* Use **single SST uploads, organized bucket prefixes**, and **minimal CFs** for maintainable backups.
+* The `google-cloud-cpp[storage-grpc]` plugin is sufficient for KV backup and snapshot workflows.

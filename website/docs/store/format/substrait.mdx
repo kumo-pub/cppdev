@@ -1,0 +1,23 @@
+
+# Substrait
+
+**Overview:**
+Substrait is an open standard for representing relational algebra plans in a platform-independent way. Unlike traditional data storage formats like Parquet or Arrow, Substrait is a **plan/protocol format** rather than a serialized data format. Its primary goal is to allow **interoperable query execution** across different engines, enabling systems to share query plans without being tied to a specific backend.
+
+**Key Features:**
+
+* **Cross-Engine Interoperability:** Substrait allows query plans to be serialized and sent between different SQL engines or execution engines.
+* **Extensible Relational Algebra Representation:** Supports standard relational operators (scan, filter, join, aggregate, sort) and allows engine-specific extensions.
+* **Integration with Arrow/Parquet:** Substrait leverages Apache Arrow for in-memory columnar data representation and can reference data stored in formats like Parquet.
+* **Protobuf-Based Serialization:** Plans are serialized using Protobuf, making it easy to parse and transmit across languages and platforms.
+
+**Typical Use Cases:**
+
+* Engine-to-engine query plan exchange (e.g., submitting a plan from a planner to a distributed execution engine).
+* Standardizing cross-system optimizations.
+* Query federation across heterogeneous backends without rewriting SQL.
+
+**Resources:**
+
+* [Substrait Official GitHub](https://github.com/substrait-io/substrait)
+* [Substrait Specification](https://substrait.io/docs/)

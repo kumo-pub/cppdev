@@ -1,0 +1,175 @@
+# 变量（Variables）
+
+## 简介 {#introduction}
+
+Tally 变量分为多种具体类型，常用类型如下表：
+
+| 类型                       | 描述                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------ |
+| `tally::Counter<T>`      | 默认值为 0 的计数器；`varname << N` 等价于 `varname += N`                                              |
+| `tally::MaxerGauge<T>`   | 最大值统计器，默认值为 `std::numeric_limits<T>::min()`；`varname << N` 等价于 `varname = max(varname, N)` |
+| `tally::MinerGauge<T>`   | 最小值统计器，默认值为 `std::numeric_limits<T>::max()`；`varname << N` 等价于 `varname = min(varname, N)` |
+| `tally::IntRecorder`     | 记录从首次使用起的平均值。注意：平均值不受时间窗口限制。如需获取特定时间窗口内的平均值，通常需用 `Window` 包裹。                              |
+| `tally::Window<VAR>`     | 基于已有 tally，获取指定时间窗口内的累计值，自动更新，无需手动 push 值。                                                 |
+| `tally::PerSecond<VAR>`  | 基于已有 tally，获取指定时间窗口内的每秒平均值，自动更新，无需手动 push 值。                                               |
+| `tally::WindowEx<T>`     | 独立 tally，获取指定时间窗口内的累计值，不依赖其他 tally，需要显式输入数据。                                               |
+| `tally::PerSecondEx<T>`  | 独立 tally，获取指定时间窗口内的每秒平均值，不依赖其他 tally，需要显式输入数据。                                             |
+| `tally::LatencyRecorder` | 专门用于记录延迟与 QPS。输入延迟数据即可得到平均延迟、最大延迟、QPS 和总调用次数。                                              |
+| `tally::Status<T>`       | 记录并显示值，提供额外的 `set_value` 方法。                                                               |
+| `tally::FuncGauge`       | 按需显示值。在无法调用 `set_value` 或频率不确定的情况下，可通过回调函数获取值并展示。                                          |
+| `tally::Flag`            | 将关键 `turbo::Flags` 以 tally 形式导出，方便监控。                                                      |
+
+### 示例
+
+```c++
+#include <tally/tally.h>
+
+namespace foo {
+namespace bar {
+
+// tally::Counter<T> 用于累加，这里统计读取错误次数
+tally::Counter<int> g_read_error;
+
+// 用 Window 获取时间窗口内的值（例如过去 60 秒）
+tally::Window<tally::Counter<int>> g_read_error_minute("foo_bar", "read_error_minute", &g_read_error, 60);
+
+// LatencyRecorder 可同时统计总次数、QPS、平均延迟、延迟分位数和最大延迟
+tally::LatencyRecorder g_write_latency("foo_bar_write", "write latency");
+
+// 任务推送计数器
+tally::Counter<int> g_task_pushed("foo_bar", "task_pushed");
+
+// PerSecond 获取时间窗口内每秒平均值（例如任务每秒推送量）
+tally::PerSecond<tally::Counter<int>> g_task_pushed_second("foo_bar", "task pushed second", &g_task_pushed);
+
+}  // namespace bar
+}  // namespace foo
+```
+
+### 使用示例
+
+```c++
+// 读错误 +1
+foo::bar::g_read_error << 1;
+
+// 写操作延迟 23ms
+foo::bar::g_write_latency << 23;
+
+// 推送 1 个任务
+foo::bar::g_task_pushed << 1;
+```
+
+### 跨文件使用
+
+在头文件声明即可：
+
+```c++
+namespace foo {
+namespace bar {
+extern tally::Counter<int> g_read_error;
+extern tally::LatencyRecorder g_write_latency;
+extern tally::Counter<int> g_task_pushed;
+}  // namespace bar
+}  // namespace foo
+```
+
+> 注意：不要在不同文件中定义全局 `Window` 或 `PerSecond`，初始化顺序未定义，可能引发错误。
+
+---
+
+## 线程安全
+
+* Tally **线程兼容**：不同线程可操作不同 tally（如 `expose`、`hide` 不同 tally 是安全的）。
+* 除读写接口外的其他函数 **不线程安全**，例如不要在多线程中同时 `expose` 同一 tally。
+
+---
+
+## 定时操作
+
+使用 `turbo::TimeCost` 进行计时：
+
+```c++
+#include <kutil/time.h>
+namespace turbo {
+class TimeCost {
+public:
+    TimeCost();
+    explicit TimeCost();
+
+    void reset();  // 启动计时
+    void stop();   // 停止计时
+
+    // 返回耗时
+    int64_t n_elapsed() const;  // 纳秒
+    int64_t u_elapsed() const;  // 微秒
+    int64_t m_elapsed() const;  // 毫秒
+    int64_t s_elapsed() const;  // 秒
+};
+}  // namespace turbo
+```
+
+---
+
+## tally::Scope {#scope}
+
+`tally::Scope` 用于约束所有 `tally::Variable` 的前缀和标签，每个变量属于唯一 Scope，默认使用全局 Scope (`ScopeInstance::get_sys_scope`)。
+
+---
+
+## 核心变量类：tally::Variable
+
+* 所有 tally 的基类。
+* 提供注册、枚举、查询等核心功能。
+* 默认创建不在全局注册，仅作为高性能计数器使用。
+* 全局注册（暴露）通过 `expose`：
+
+```c++
+turbo::Status expose(std::string_view name, std::string_view help, Scope *scope = nullptr);
+```
+
+* 暴露后，可通过 `Variable::describe_exposed(name)` 查询值。
+* 同名变量冲突会打印 FATAL 日志或根据 `-tally_abort_on_same_name` 直接 abort。
+
+---
+
+## 导出变量
+
+* 基类：`tally::StatsReporter`
+* 内置支持：`Prometheus`、`JSON`
+
+### Prometheus
+
+```c++
+std::stringstream ss;
+tally::PrometheusStatsReporter reporter(ss);
+tally::Variable::report(&reporter, now);
+reporter.flush();
+```
+
+### JSON
+
+```c++
+nlohmann::ordered_json result;
+auto json_reporter = tally::JsonStatsReporter(result);
+tally::Variable::report(&json_reporter, now);
+json_reporter.flush();
+```
+
+---
+
+## tally::Reducer
+
+* 将多个值通过二元运算符合并为单个值。
+* 运算符必须满足：
+
+* 结合律
+* 交换律
+* 无副作用
+
+例如：
+
+```c++
+reducer << e1 << e2 << e3; // 等价于 e1 op e2 op e3
+```
+
+* 常见子类：`tally::Counter`、`tally::MaxerGauge`、`tally::MinerGauge` 等。

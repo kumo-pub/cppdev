@@ -1,1 +1,72 @@
-# pegtl
+# PEGTL (Parsing Expression Grammar Template Library)
+
+PEGTL is a **header-only C++ library** for parsing based on **Parsing Expression Grammar (PEG)**.
+It provides a lightweight, efficient, and flexible solution for building parsers for expressions, DSLs, and other structured input.
+
+---
+
+## Repository
+
+PEGTL is actively maintained on GitHub:
+
+[https://github.com/taocpp/PEGTL](https://github.com/taocpp/PEGTL)
+
+The repository includes extensive **examples** in the `examples` directory, covering expression parsing, DSLs, and more.
+These examples provide practical guidance for integrating PEGTL into your C++ projects.
+
+---
+
+## Why PEGTL?
+
+PEGTL is designed for **C++ ecosystems** and is suitable when:
+
+- You need to parse **small to medium-sized expressions or DSLs**.
+- You want **control over parser behavior and memory usage**.
+- Integration with existing **C++ codebase** is a priority.
+- Performance is important, but parsing load is **moderate**, not extreme online QPS.
+
+It is **not intended for full SQL engines or complex grammars** that require advanced optimizations or backtracking-heavy parsing.
+
+---
+
+## Integration Complexity
+
+- Header-only: no library linking required.
+- Easy to integrate into existing C++ projects.
+- Minimal dependencies, purely C++17-compatible.
+
+---
+
+## Performance Characteristics
+
+| Metric                  | Typical Range / Notes                          |
+|-------------------------|-----------------------------------------------|
+| Parsing Speed           | Very fast for small expressions, moderate for large nested grammars |
+| Memory Usage            | Low, can be tightly controlled               |
+| Complexity Handling     | Handles moderate recursion and backtracking efficiently |
+| Scalability             | Suitable for offline compilers or internal DSL parsing |
+
+> For extremely complex grammars or very high online request rates (thousands of QPS parsing large inputs), PEGTL may not be sufficient.
+
+---
+
+## Use Cases
+
+- **Expression Evaluation**: Parsing `a + b * c` or user-defined functions.
+- **Internal DSLs**: Small domain-specific languages for configuration, query fragments, or scripting.
+- **Offline Code Generation**: Intermediate parser for compiler-like workflows.
+
+---
+
+## Comparison with Other IR Parsing Tools
+
+- **Bison / Flex**: Better for **full SQL parsing or production-grade compilers**. More complex integration, but necessary for high-performance or large-scale grammars.
+- **PEGTL**: Preferable for **small, controllable grammars**, offline tooling, or expression evaluation. Easier to integrate and maintain in C++ projects.
+
+---
+
+## Summary
+
+PEGTL offers a **lightweight, header-only, C++-friendly parsing solution**.
+It is best for **offline compilation, DSL processing, and expression evaluation**, where grammar size is manageable, performance is important, and full compiler complexity is unnecessary.
+The **examples directory in the repository** provides practical templates to accelerate integration and learning.

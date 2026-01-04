@@ -1,0 +1,102 @@
+# Test Reporters
+
+## Reporters
+
+Doctest features a modular reporter/listener system that allows users to write and register their own reporters. The reporter interface can also be used to "listen" to events.
+
+You can use ``--list-reporters`` to list all registered reporters/listeners. Several reporters are implemented in the framework:
+- ```console``` - Streaming - Writes normal text lines with color if a capable terminal is detected
+- ```xml``` - Streaming - Writes in an xml format customized for doctest
+- ```junit``` - Buffered - Writes in JUnit-compatible xml - For more information, check [here](https://github.com/doctest/doctest/issues/318) and [here](https://github.com/doctest/doctest/issues/376).
+
+Streaming means results are delivered incrementally, rather than at the end of the test run.
+
+Output is written to ```stdout``` by default, but can be redirected using the ```--out=<filename>``` [**command line option**](commandline.mdx).
+
+Example of how to define your own reporter:
+
+```c++
+#include <doctest/doctest.h>
+
+#include <mutex>
+
+using namespace doctest;
+
+struct MyXmlReporter : public IReporter
+{
+    // caching pointers/references to objects of these types - safe to do
+    std::ostream&         stdout_stream;
+    const ContextOptions& opt;
+    const TestCaseData*   tc;
+    std::mutex            mutex;
+
+    // constructor has to accept the ContextOptions by ref as a single argument
+    MyXmlReporter(const ContextOptions& in)
+            : stdout_stream(*in.cout)
+            , opt(in) {}
+
+    void report_query(const QueryData& /*in*/) override {}
+
+    void test_run_start() override {}
+
+    void test_run_end(const TestRunStats& /*in*/) override {}
+
+    void test_case_start(const TestCaseData& in) override { tc = &in; }
+
+    // called when a test case is reentered because of unfinished subcases
+    void test_case_reenter(const TestCaseData& /*in*/) override {}
+
+    void test_case_end(const CurrentTestCaseStats& /*in*/) override {}
+
+    void test_case_exception(const TestCaseException& /*in*/) override {}
+
+    void subcase_start(const SubcaseSignature& /*in*/) override {
+        std::lock_guard<std::mutex> lock(mutex);
+    }
+
+    void subcase_end() override {
+        std::lock_guard<std::mutex> lock(mutex);
+    }
+
+    void log_assert(const AssertData& in) override {
+        // don't include successful asserts by default - this is done here
+        // instead of in the framework itself because doctest doesn't know
+        // if/when a reporter/listener cares about successful results
+        if(!in.m_failed && !opt.success)
+            return;
+
+        // make sure there are no races - this is done here instead of in the
+        // framework itself because doctest doesn't know if reporters/listeners
+        // care about successful asserts and thus doesn't lock a mutex unnecessarily
+        std::lock_guard<std::mutex> lock(mutex);
+
+        // ...
+    }
+
+    void log_message(const MessageData& /*in*/) override {
+        // messages too can be used in a multi-threaded context - like asserts
+        std::lock_guard<std::mutex> lock(mutex);
+
+        // ...
+    }
+
+    void test_case_skipped(const TestCaseData& /*in*/) override {}
+};
+
+// "1" is the priority - used for ordering when multiple reporters are used
+REGISTER_REPORTER("my_xml", 1, MyXmlReporter);
+
+// registering the same class as a reporter and as a listener is nonsense but it's possible
+REGISTER_LISTENER("my_listener", 1, MyXmlReporter);
+```
+
+Custom `IReporter` implementations must be registered with one of the following:
+
+* `REGISTER_REPORTER`, when the new reporter is an option that users can select at runtime.
+* `REGISTER_LISTENER`, when the reporter is actually a listener and must always execute, regardless of which reporter is selected at runtime.
+
+Multiple reporters can be used simultaneously - simply specify them via the ```--reporters=...``` [**command line filter option**](commandline.mdx), separated by commas like this: ```--reporters=myReporter,xml```. Their execution order will be based on their priority - in the case of the example reporter above, that is the number `1` (lower values mean earlier execution - the default console/xml reporters in the framework have a priority of 0, and negative values are also accepted).
+
+All registered listeners (``REGISTER_LISTENER``) will execute before any reporters - they do not need to be specified and cannot be filtered via the command line.
+
+When implementing a reporter, it is recommended that users follow the comments in the example above and review the small number of reporters implemented in the framework itself. Also check out the [**example**](https://github.com/doctest/doctest/blob/master/examples/all_features/reporters_and_listeners.cpp).

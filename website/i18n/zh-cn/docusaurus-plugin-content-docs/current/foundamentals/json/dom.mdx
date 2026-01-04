@@ -1,0 +1,262 @@
+# DOM
+
+文档对象模型（DOM）是一种内存中的 JSON 表示，便于查询和操作。我们在 [教程](tutorial.mdx) 中介绍了 DOM 的基本用法，本节将介绍更多细节和高级用法。
+
+[TOC]
+
+# 模板 {#Template}
+
+在教程中，我们使用了 `Value` 和 `Document` 类型。与 `std::string` 类似，这些类型实际上是两个模板类的 `typedef`：
+
+```cpp
+namespace merak::json {
+
+template <typename Encoding, typename Allocator = MemoryPoolAllocator<> >
+class GenericValue {
+    // ...
+};
+
+template <typename Encoding, typename Allocator = MemoryPoolAllocator<> >
+class GenericDocument : public GenericValue<Encoding, Allocator> {
+    // ...
+};
+
+typedef GenericValue<UTF8<> > Value;
+typedef GenericDocument<UTF8<> > Document;
+
+} // namespace merak::json
+```
+
+用户可以自定义模板参数。
+
+## 编码 {#Encoding}
+
+`Encoding` 参数指定 DOM 在内存中存储 JSON 字符串所使用的编码。有效选项包括 `UTF8`、`UTF16` 和 `UTF32`。注意，这三种类型本身也是模板类。`UTF8<>` 等价于 `UTF8<char>`，即用 `char` 存储字符串。更多细节请参考 [Encoding](encoding.mdx)。
+
+示例：假设 Windows 应用程序需要查询 JSON 中存储的本地化字符串。Windows 的 Unicode 函数使用 UTF-16（宽字符）编码。无论 JSON 文件的编码如何，我们可以在内存中使用 UTF-16 存储这些字符串。
+
+```cpp
+using namespace merak::json;
+
+typedef GenericDocument<UTF16<> > WDocument;
+typedef GenericValue<UTF16<> > WValue;
+
+FILE* fp = fopen("localization.json", "rb"); // 非 Windows 平台可用 "r"
+
+char readBuffer[256];
+FileReadStream bis(fp, readBuffer, sizeof(readBuffer));
+
+AutoUTFInputStream<unsigned, FileReadStream> eis(bis);  // 将 bis 包装成 eis
+
+WDocument d;
+d.ParseStream<0, AutoUTF<unsigned> >(eis);
+
+const WValue locale(L"ja"); // 日语
+
+MessageBoxW(hWnd, d[locale].GetString(), L"Test", MB_OK);
+```
+
+## 分配器 {#Allocator}
+
+`Allocator` 定义 `Document`/`Value` 分配和释放内存时使用的分配类。`Document` 拥有或引用一个 `Allocator` 实例，而 `Value` 为节省内存不拥有此实例。
+
+`GenericDocument` 默认使用 `MemoryPoolAllocator`。该分配器按顺序分配内存，无法释放单独的内存块，非常适合在解析 JSON 生成 DOM 时使用。
+
+Merak 还提供了另一种分配器 `CrtAllocator`（CRT 表示 C 运行库）。它直接使用标准的 `malloc()` / `realloc()` / `free()`，适用于频繁添加/删除操作，但效率远低于 `MemoryPoolAllocator`。
+
+# 解析 {#Parsing}
+
+`Document` 提供多种解析函数。下面的 (1) 是核心函数，其他函数都是调用它的辅助函数：
+
+```cpp
+using namespace merak::json;
+
+// (1) 核心
+template <unsigned parseFlags, typename SourceEncoding, typename InputStream>
+GenericDocument& GenericDocument::ParseStream(InputStream& is);
+
+// (2) 使用流的编码
+template <unsigned parseFlags, typename InputStream>
+GenericDocument& GenericDocument::ParseStream(InputStream& is);
+
+// (3) 使用默认标志
+template <typename InputStream>
+GenericDocument& GenericDocument::ParseStream(InputStream& is);
+
+// (4) 原地解析
+template <unsigned parseFlags>
+GenericDocument& GenericDocument::ParseInsitu(Ch* str);
+
+// (5) 原地解析，使用默认标志
+GenericDocument& GenericDocument::ParseInsitu(Ch* str);
+
+// (6) 普通字符串解析
+template <unsigned parseFlags, typename SourceEncoding>
+GenericDocument& GenericDocument::Parse(const Ch* str);
+
+// (7) 使用 Document 编码解析字符串
+template <unsigned parseFlags>
+GenericDocument& GenericDocument::Parse(const Ch* str);
+
+// (8) 默认标志解析字符串
+GenericDocument& GenericDocument::Parse(const Ch* str);
+```
+
+教程中示例使用 (8) 来解析普通字符串，而 [Streams](stream.mdx) 中的示例使用前三个函数。原地解析将在后面介绍。
+
+`parseFlags` 是以下位标志的组合：
+
+| 解析标志                          | 含义                                                                |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `kParseNoFlags`               | 不设置标志。                                                            |
+| `kParseDefaultFlags`          | 默认解析选项，相当于宏 `RAPIDJSON_PARSE_DEFAULT_FLAGS`（定义为 `kParseNoFlags`）。 |
+| `kParseInsituFlag`            | 原地（破坏性）解析。                                                        |
+| `kParseValidateEncodingFlag`  | 验证 JSON 字符串编码。                                                    |
+| `kParseIterativeFlag`         | 迭代解析（常量栈空间复杂度）。                                                   |
+| `kParseStopWhenDoneFlag`      | 完成解析根节点后停止处理剩余流，可解析多个 JSON。                                       |
+| `kParseFullPrecisionFlag`     | 全精度解析数字（较慢），默认使用普通精度（最大误差 3 ULP）。                                 |
+| `kParseCommentsFlag`          | 允许单行 `// ...` 和多行 `/* ... */` 注释（宽松 JSON）。                        |
+| `kParseNumbersAsStringsFlag`  | 将数字类型解析为字符串。                                                      |
+| `kParseTrailingCommasFlag`    | 允许对象和数组末尾的逗号（宽松 JSON）。                                            |
+| `kParseNanAndInfFlag`         | 允许 `NaN`、`Inf`、`Infinity`、`-Inf` 和 `-Infinity`（宽松 JSON）。          |
+| `kParseEscapedApostropheFlag` | 允许字符串中使用转义单引号 `\'`（宽松 JSON）。                                      |
+
+使用非类型模板参数而非函数参数，C++ 编译器可以为每种组合生成专用代码，提高性能并减少代码体积（若只使用单个特化）。缺点是标志必须在编译时确定。
+
+`SourceEncoding` 参数定义流的编码类型，可与 `Document` 的编码不同。详细信息请参见 [转码与验证](#TranscodingAndValidation)。
+
+`InputStream` 是输入流类型。
+
+## 解析错误 {#ParseError}
+
+解析成功时，`Document` 包含解析结果。解析失败时，原 DOM **保持不变**。
+可使用以下函数获取错误状态：
+
+* `HasParseError()`
+* `GetParseError()`
+* `GetErrorOffset()`
+
+| 错误码                                        | 描述                     |
+| ------------------------------------------ | ---------------------- |
+| `kParseErrorNone`                          | 无错误。                   |
+| `kParseErrorDocumentEmpty`                 | 文档为空。                  |
+| `kParseErrorDocumentRootNotSingular`       | 根节点后不允许其他值。            |
+| `kParseErrorValueInvalid`                  | 值无效。                   |
+| `kParseErrorObjectMissName`                | 对象成员缺少名称。              |
+| `kParseErrorObjectMissColon`               | 对象成员名称后缺少冒号。           |
+| `kParseErrorObjectMissCommaOrCurlyBracket` | 对象成员后缺少逗号或 `}`。        |
+| `kParseErrorArrayMissCommaOrSquareBracket` | 数组元素后缺少逗号或 `]`。        |
+| `kParseErrorStringUnicodeEscapeInvalidHex` | 字符串中 `\u` 后的十六进制数字无效。  |
+| `kParseErrorStringUnicodeSurrogateInvalid` | 字符串中代理对无效。             |
+| `kParseErrorStringEscapeInvalid`           | 字符串中转义字符无效。            |
+| `kParseErrorStringMissQuotationMark`       | 字符串缺少结尾引号。             |
+| `kParseErrorStringInvalidEncoding`         | 字符串编码无效。               |
+| `kParseErrorNumberTooBig`                  | 数值过大，无法存储在 `double` 中。 |
+| `kParseErrorNumberMissFraction`            | 数值缺少小数部分。              |
+| `kParseErrorNumberMissExponent`            | 数值缺少指数部分。              |
+
+错误偏移量是从流开头到错误位置的字符数。Merak 目前不记录行号。
+
+错误消息默认提供英文（`merak/json/error/en.h`），用户可修改或使用自定义本地化。
+
+示例：
+
+```cpp
+#include "merak/json/document.h"
+#include "merak/json/error/en.h"
+
+Document d;
+if (d.Parse(json).HasParseError()) {
+    fprintf(stderr, "\nError(offset %u): %s\n",
+        (unsigned)d.GetErrorOffset(),
+        GetParseError_En(d.GetParseErrorCode()));
+}
+```
+
+## 原地解析 {#InSituParsing}
+
+根据 [Wikipedia](http://en.wikipedia.org/wiki/In_situ)：
+
+> *In situ* … 字面意思是“原位”、“在位置上”。在计算机科学中，若算法所需额外内存为 O(1)，则称为原地算法。例如，堆排序就是原地排序算法。
+
+在普通解析中，需要将 JSON 字符串解码并拷贝到其他缓冲区，开销较大。原地解析直接在 JSON 原存储位置解码字符串，可行因为解码后的长度 ≤ 原字符串长度。解码包括处理转义字符（如 `"\n"`、`"\u1234"`）并在末尾添加空字符 `'\0'`。
+
+普通解析和原地解析对比：
+
+* **普通解析**：将解码后的字符串拷贝到新缓冲区，`"\\n"` (2 字符) → `"\n"` (1 字符)，`"\\u0073"` (6 字符) → `"s"` (1 字符)。
+* **原地解析**：直接修改原 JSON 内容，若字符串无转义（如 `"msg"`），仅将结尾引号替换为 `'\0'`。
+
+原地解析 API 使用 `char*` 而非 `const char*`：
+
+```cpp
+FILE* fp = fopen("test.json", "r");
+fseek(fp, 0, SEEK_END);
+size_t filesize = (size_t)ftell(fp);
+fseek(fp, 0, SEEK_SET);
+char* buffer = (char*)malloc(filesize + 1);
+size_t readLength = fread(buffer, 1, filesize, fp);
+buffer[readLength] = '\0';
+fclose(fp);
+
+Document d;
+d.ParseInsitu(buffer);
+
+// 查询和修改 DOM
+
+free(buffer);
+// 注意：此时 d 可能包含指向已释放缓冲区的悬空指针
+```
+
+特点与限制：
+
+1. JSON 必须完整存储在内存。
+2. 源编码必须与 DOM 编码一致。
+3. 缓冲区必须保留到 DOM 不再使用。
+4. 若 DOM 长期使用，且 JSON 字符串少，保留缓冲区可能浪费内存。
+
+原地解析适合短期、一次性 JSON，例如反序列化为 C++ 对象、处理 Web 请求等。
+
+## 转码与验证 {#TranscodingAndValidation}
+
+Merak 支持不同 Unicode 格式间的转换（UCS Transformation Formats）。DOM 解析时，源流编码可与 DOM 编码不同，例如源流为 UTF-8，DOM 使用 UTF-16。示例见 [EncodedInputStream](stream.mdx)。
+
+输出 JSON 时也可使用转码，示例见 [EncodedOutputStream](stream.mdx)。
+
+转码过程：先将源字符串解码为 Unicode 码点，再编码为目标格式，同时验证源字节序列合法性。若非法，返回 `kParseErrorStringInvalidEncoding`。
+
+默认情况下，若源编码与 DOM 编码一致，不进行验证，可通过 `kParseValidateEncodingFlag` 强制验证。
+
+# 技巧 {#Techniques}
+
+## 使用 DOM 生成 SAX 事件
+
+使用 DOM 生成 JSON：
+
+```cpp
+Writer<StringBuffer> writer(buffer);
+d.Accept(writer);
+```
+
+实际上，`Value::Accept()` 会将 SAX 事件发送给处理器。设计上解耦了 `Value` 与 `Writer`，可自定义处理器，例如将 DOM 转换为 XML。
+
+详情见 [SAX](sax.mdx)。
+
+## 用户提供缓冲区 {#UserBuffer}
+
+许多应用希望减少内存分配。`MemoryPoolAllocator` 支持用户提供缓冲区，可放在栈上或静态数组，用于临时存储。
+
+示例：使用栈内存作为值存储和解析临时缓冲区：
+
+```cpp
+typedef GenericDocument<UTF8<>, MemoryPoolAllocator<>, MemoryPoolAllocator<>> DocumentType;
+char valueBuffer[4096];
+char parseBuffer[1024];
+MemoryPoolAllocator<> valueAllocator(valueBuffer, sizeof(valueBuffer));
+MemoryPoolAllocator<> parseAllocator(parseBuffer, sizeof(parseBuffer));
+DocumentType d(&valueAllocator, sizeof(parseBuffer), &parseAllocator);
+d.Parse(json);
+```
+
+若总分配 ≤ 4096 + 1024 字节，不会触发堆内存分配。
+
+可通过 `MemoryPoolAllocator::Size()` 查询当前已分配内存，便于确定缓冲区大小。

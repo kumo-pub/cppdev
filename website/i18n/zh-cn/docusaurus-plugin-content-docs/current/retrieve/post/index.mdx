@@ -1,0 +1,257 @@
+# Posting List Implementations (C++ / Industrial)
+
+## Overview
+
+A **posting list** (or inverted list) is a fundamental data structure in large‑scale retrieval and search systems. It stores the list of document IDs (and optionally positions) where a given term appears. An efficient posting list engine must balance:
+
+* **memory footprint**
+* **scan and random access performance**
+* **intersection / skip efficiency**
+* **compression / unpacking cost**
+
+In practical systems, posting lists are implemented as either **uncompressed arrays** or **compressed integer lists** with optional **block/skip indexing**.
+
+---
+
+# 1) Uncompressed Posting List
+
+## Overview
+
+An uncompressed posting list is a sorted array of `uint32_t` document IDs (or positions). It is conceptually simple and provides fast access without decode overhead.
+
+## Characteristics
+
+* **Space:** largest (no compression)
+* **Scan performance:** best for sequential / random access
+* **Skip support:** trivial
+* **Serialization:** direct binary dump
+
+## Typical Use Cases
+
+* Short posting lists
+* Memory‑rich systems
+* Scenarios where CPU decode cost must be minimal
+
+## Simple C++ Sketch
+
+```cpp
+std::vector<uint32_t> postlist = {3, 7, 15, 29, 102};
+
+// Sequential scan
+for (uint32_t doc : postlist) {
+    process(doc);
+}
+
+// Random access
+uint32_t doc = postlist[2];
+```
+
+---
+
+# 2) Block / Skip Structures
+
+## Overview
+
+Block or skip indexing partitions a posting list into fixed or variable sized blocks, and stores **skip pointers** (or summary metadata) to accelerate traversal and intersection. Many modern retrieval engines combine block indexing with compressed posting formats for optimal performance.
+
+## Characteristics
+
+* **Skip support:** allows jumping past irrelevant blocks
+* **Intersection speed:** improved for long lists
+* **Extra metadata:** cost proportional to block count
+
+## Typical Use Cases
+
+* Long posting lists
+* High term intersection frequencies
+* Real‑time query processing
+
+---
+
+# 3) Delta + Compressed Integer Lists
+
+## Principle
+
+Delta encoding exploits the fact that sorted document IDs often have small differences between adjacent values. For a posting list:
+
+```
+original: [d1, d2, d3, ...]
+delta:    [d1, d2 - d1, d3 - d2, ...]
+```
+
+Delta values tend to be small and more compressible. A second stage integer codec then compresses these deltas.
+
+## Common Industrial Codecs
+
+Industry uses several established integer compression codecs:
+
+| Codec Category | Example Algorithms         |
+| -------------- | -------------------------- |
+| Variable‑byte  | VByte                      |
+| Bit‑packing    | PFor (Frame of Reference)  |
+| SIMD‑friendly  | SIMD‑FOR / SIMD‑PFor       |
+| Simple integer | Simple9 / Simple16         |
+| Legacy gamma   | Elias Gamma / Delta / Rice |
+
+## Example Libraries
+
+These are real, industrially used libraries:
+
+## **FastPForLib**
+
+* GitHub: [https://github.com/lemire/FastPFor](https://github.com/lemire/FastPFor)
+* Implements:
+
+* **Frame of Reference (FOR)**
+* **Patched Frame of Reference (PFor)**
+* **SIMD‑PFor / SIMD‑FOR** variants
+* Variable‑byte, Simple9, Simple16, etc.
+* Widely used in inverted index systems for posting list compression.
+
+**Encoding / Decoding Pattern (Pseudo)**
+
+```cpp
+#include "common/headers.hpp"
+#include "FastPFor/headers.hpp"
+
+// assume posting list in 'postings'
+auto deltas = delta_encode(postings);
+
+// choose a codec, e.g., PFor
+FastPForLib::PFor<32> codec;
+
+// encode into compressed buffer
+std::vector<uint32_t> compressed(deltas.size());
+size_t outSize = 0;
+codec.encodeArray(deltas.data(), deltas.size(), compressed.data(), outSize);
+
+// decode back
+std::vector<uint32_t> decoded(deltas.size());
+size_t decodedSize = 0;
+codec.decodeArray(compressed.data(), outSize, decoded.data(), decodedSize);
+
+// restore original
+auto restored = delta_decode(decoded);
+```
+
+> Note: actual API names vary by FastPForLib version; above is schematic.
+
+---
+
+# 4) Simple9 / Simple16 / Variable Byte
+
+These codecs compress integer lists without SIMD optimization but remain common in older systems:
+
+* **Variable Byte (VByte):** easy decode, moderate compression
+* **Simple9 / Simple16:** better compression, slightly higher decode cost
+* **Elias / Gamma / Delta / Rice:** good theoretical compression, weaker random access
+
+## Typical Uses
+
+* Legacy systems
+* Compatibility scenarios
+* Lightweight compression where SIMD is unnecessary
+
+---
+
+# 5) Emerging SIMD‑Optimized Schemes
+
+Newer schemes focus on **balancing compression with SIMD decode throughput**:
+
+* Bit‑packing with SIMD instructions
+* Block‑oriented ANS / Bulk coding
+* Byte/bit shuffle + entropy coding (zstd‐style)
+
+While research demonstrates high throughput, adoption in large retrieval stacks is still catching up compared to established codecs like SIMD‑PFor / FastPFor.
+
+---
+
+# Industrial Comparison
+
+| Scheme                 | Space Efficiency | Decode Speed | Random Access | Skip Support  | SIMD Friendly |
+| ---------------------- | ---------------- | ------------ | ------------- | ------------- | ------------- |
+| Uncompressed           | ❌                | ✔️           | ✔️            | ✔️            | —             |
+| Block / Skip Structure | ⬆️               | ✔️           | ✔️            | ✔️            | optional      |
+| PFor / PFORDelta       | ✔️               | ✔️✔️         | ⚠️            | ⬆️ via blocks | ✔️            |
+| Simple9 / Simple16     | ⬆️               | ✔️           | ⚠️            | ⬆️            | —             |
+| Variable Byte          | ➖                | ✔️✔️         | ⚠️            | limited       | —             |
+| New SIMD Schemes       | ✔️✔️             | ✔️✔️✔️       | ⚠️            | plugin        | ✔️            |
+
+---
+
+# Typical Scenarios
+
+## Uncompressed
+
+* Very short lists
+* Memory available
+* Lowest CPU cost
+
+## Compressed (PFor / PFORDelta)
+
+* Long posting lists (millions of entries)
+* Disk / memory bandwidth constrained
+* Intersection and batch processing dominant
+
+## Block / Skip Structure
+
+* Frequent skipping required
+* Multi‐term intersection heavy workloads
+* Real‐time low latency retrieval
+
+---
+
+# Implementation Notes
+
+Practical industrial systems often combine:
+
+```
+Block Index + Delta Encoding + SIMD‑friendly Codec
+```
+
+to achieve a balance of **compact storage**, **fast sequential scan**, and **efficient intersection**.
+
+Posting lists are typically part of a larger inverted index which may include:
+
+* **Position lists** (for phrase queries)
+* **Payloads** (term frequency, field boosts)
+* **Bitmap filters** (for quick disqualification)
+
+Engineering considerations include:
+
+* **Memory pool / mmap support**
+* **Batch decode interfaces**
+* **Cache‑friendly layout**
+* **Concurrency support** (read parallelism)
+
+---
+
+# Posting List Encoding Example (FastPForLib)
+
+```cpp
+#include "FastPFor/headers.hpp"
+#include <vector>
+
+// delta_encode / delta_decode implemented separately
+
+std::vector<uint32_t> postings = {10, 15, 102, 205, 2200};
+
+// compute deltas
+auto deltas = delta_encode(postings);
+
+// choose PFor codec from FastPForLib
+FastPForLib::PFor<32> codec;
+
+// encode
+std::vector<uint32_t> compressed(deltas.size());
+size_t outSize = 0;
+codec.encodeArray(deltas.data(), deltas.size(), compressed.data(), outSize);
+
+// decode
+std::vector<uint32_t> recovered(deltas.size());
+size_t recSize = 0;
+codec.decodeArray(compressed.data(), outSize, recovered.data(), recSize);
+
+// restore postings
+auto restored = delta_decode(recovered);
+```

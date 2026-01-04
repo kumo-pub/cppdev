@@ -1,0 +1,114 @@
+# Parquet Format Overview
+
+**Apache Parquet** is a widely used open-source columnar storage file format designed for efficient data analytics.
+It was created to work well with the Hadoop ecosystem and has since become a de-facto standard for analytical workloads across many platforms.
+
+Official documentation:
+
+* Apache Parquet Project: [https://parquet.apache.org/](https://parquet.apache.org/)
+* Parquet Format Specification: [https://parquet.apache.org/documentation/latest/](https://parquet.apache.org/documentation/latest/)
+* Parquet on GitHub: [https://github.com/apache/parquet-format](https://github.com/apache/parquet-format)
+
+---
+
+## 1. Key Characteristics
+
+**Columnar Storage**
+
+* Parquet stores data column by column, not row by row.
+* This enables reading only the necessary columns, reducing I/O for analytical queries.
+
+**Schema-aware Metadata**
+
+* Each Parquet file includes its schema and metadata, allowing complex nested types (lists, structs, maps).
+* Schema information enables predicate pushdown and improved pruning.
+
+**Per-column Encoding and Compression**
+
+* Each column can use different encoding/compression schemes, such as Snappy, Gzip, Brotli, or ZSTD.
+* Columnar compression is more efficient than row-based compression for analytical workloads.
+
+**Splittable Files**
+
+* Large Parquet files can be split across multiple processing tasks, enabling parallel reads.
+
+**Cross-language Interoperability**
+Parquet is supported in many ecosystems:
+
+| Language | API / Library              |
+| -------- | -------------------------- |
+| Java     | Apache Parquet (native)    |
+| C++      | Apache Arrow / Parquet C++ |
+| Python   | pyarrow, fastparquet       |
+| Go       | parquet-go                 |
+| Rust     | parquet-rs                 |
+
+---
+
+## 2. Usage Scenarios
+
+**Analytical Workloads**
+
+* Aggregations, reporting, BI queries over large datasets
+* Time-series analytics and OLAP queries
+
+**Cloud Data Lakes**
+
+* Preferred format for object store data in AWS S3, GCS, Azure Blob
+
+**Data Interchange**
+
+* Works natively with Spark, Presto, Hive, Trino, Flink
+
+**Batch Processing**
+
+* Best for batch or append-heavy workloads, not random KV updates
+
+---
+
+## 3. Integration in Kumo
+
+In Kumo Stack, Parquet is typically used for:
+
+* Storing large structured datasets
+* Batch export/import pipelines
+* Persistence of analysis results
+
+Integration considerations:
+
+* Use schema evolution best practices — adding columns or optional fields carefully
+* Prefer larger Parquet files (≥256 MB) to reduce overhead
+* Use predicate pushdown to minimize data read
+
+---
+
+## 4. Performance Notes
+
+**I/O Efficiency**
+
+* Reading selected columns reduces disk I/O significantly
+
+**Compression**
+
+* Column-wise compression achieves higher ratios than row-based formats
+* Compression choice should balance CPU cost vs storage savings
+
+**Parallel Reads**
+
+* Large files allow distributed processing systems to read different row groups in parallel
+
+**Example Workflow**
+
+* ETL pipeline writes daily Parquet partitions
+* Analytics engine reads only relevant columns
+* Predicate pushdown filters rows without scanning the full file
+
+---
+
+## 5. Useful Links
+
+* Apache Parquet Official: [https://parquet.apache.org/](https://parquet.apache.org/)
+* Parquet Documentation: [https://parquet.apache.org/documentation/latest/](https://parquet.apache.org/documentation/latest/)
+* GitHub: [https://github.com/apache/parquet-format](https://github.com/apache/parquet-format)
+* Parquet with Spark: [https://spark.apache.org/docs/latest/sql-data-sources-parquet.html](https://spark.apache.org/docs/latest/sql-data-sources-parquet.html)
+* Parquet with Python (pyarrow): [https://arrow.apache.org/docs/python/parquet.html](https://arrow.apache.org/docs/python/parquet.html)

@@ -1,0 +1,169 @@
+# Test Cases
+
+## Test Cases {#test-cases}
+
+While **doctest** fully supports the traditional xUnit style based on classes containing test case methods,
+this is not the preferred style. Instead, **doctest** provides a powerful mechanism for nesting subcases within test cases. For a more detailed discussion and examples, see [**tutorial**](tutorial.mdx#test-cases-and-subcases).
+
+Test cases and subcases are very easy to use in practice:
+
+* **TEST_CASE(** `test name` **)**
+* **SUBCASE(** `subcase name` **)**
+
+`test name` and `subcase name` are free-form, quoted strings. Test names do not have to be unique within a **doctest** executable. They should also be string literals.
+
+Test cases can be written inside class bodies in C++17 with the help of `TEST_CASE_CLASS()` - used just like `TEST_CASE()` - making it easier to access private parts of test classes.
+
+Remember that even though **doctest** is [**thread-safe**](faq.mdx#is-doctest-thread-aware) - the use of subcases can only be done in the main test runner thread.
+
+Test cases can also be parameterized - see the [**documentation**](parameterized-tests.mdx).
+
+Test cases and subcases can be filtered by using the [**command line**](commandline.mdx).
+
+## BDD-style Test Cases {#bdd-style-test-cases}
+
+In addition to the classic test case style adopted by **doctest**, **doctest** also supports an alternative syntax that allows tests to be written as "executable specifications" (one of the early goals of [Behavior-Driven Development](http://dannorth.net/introducing-bdd/)). This set of macros maps to `TEST_CASE` and `SUBCASE`, with some internal support to make them easier to use.
+
+* **SCENARIO(** `scenario name` **)**
+
+This macro maps to `TEST_CASE` and works in the same way, except that the test case name will be prefixed with `Scenario: `.
+
+* **SCENARIO_TEMPLATE(** `scenario name`, _type_, `list of types` **)**
+
+This macro maps to ``TEST_CASE_TEMPLATE``` and works in the same way, except that the test case name will be prefixed with `Scenario: `.
+
+* **SCENARIO_TEMPLATE_DEFINE(** `scenario name`, _type_, _id_ **)**
+
+This macro maps to ``TEST_CASE_TEMPLATE_DEFINE``` and works in the same way, except that the test case name will be prefixed with `Scenario: `.
+
+* **GIVEN(** _something_ **)**
+* **WHEN(** _something_ **)**
+* **THEN(** _something_ **)**
+
+These macros map to ```SUBCASE```, except that the subcase name is _something_ prefixed with `given: `, `when: `, or `then: ` respectively.
+
+* **AND_WHEN(** _something_ **)**
+* **AND_THEN(** _something_ **)**
+
+Similar to ``WHEN`` and ``THEN``, except the prefix starts with `and `. They are used to chain WHENs and THENs together.
+
+When any of these macros are used, the console reporter recognizes them and formats the test case headings to align the Givens, Whens, and Thens to aid readability.
+
+Beyond the additional prefixes and formatting in the console reporter, these macros behave exactly like `TEST_CASE` and `SUBCASE`. Therefore, there is nothing to enforce the correct ordering of these macros - that is up to the programmer!
+
+Note that when using the [`--test-case=<filters>`](commandline.mdx) command line option (or `--subcase=<filters>`) you must also pass the prefix `Scenario: `.
+
+## Test Fixtures {#test-fixtures}
+
+Although **doctest** allows you to group tests together as subcases within test cases, it is sometimes still convenient to group them using more traditional test fixtures. **doctest** fully supports this as well. You define a test fixture as a simple struct:
+
+```c++
+class UniqueTestsFixture {
+private:
+    static int uniqueID;
+protected:
+    DBConnection conn;
+public:
+    UniqueTestsFixture() : conn(DBConnection::createConnection("myDB")) {}
+protected:
+    int getID() {
+        return ++uniqueID;
+    }
+};
+
+int UniqueTestsFixture::uniqueID = 0;
+
+TEST_CASE_FIXTURE(UniqueTestsFixture, "Create Employee/No Name") {
+    REQUIRE_THROWS(conn.executeSQL("INSERT INTO employee (id, name) VALUES (?, ?)", getID(), ""));
+}
+TEST_CASE_FIXTURE(UniqueTestsFixture, "Create Employee/Normal") {
+    REQUIRE(conn.executeSQL("INSERT INTO employee (id, name) VALUES (?, ?)", getID(), "Joe Bloggs"));
+}
+```
+
+The two test cases here will create uniquely named derived classes of UniqueTestsFixture, and thus have access to the `getID()` protected method and the `conn` member variable. This ensures that both test cases are able to create a DBConnection using the same method (DRY principle), and any IDs created are unique, so the order of test execution does not matter.
+
+## Test Suites {#test-suites}
+
+Test cases can be grouped into test suites. This is done with `TEST_SUITE()` or `TEST_SUITE_BEGIN()`/`TEST_SUITE_END()`.
+
+For example:
+
+```c++
+TEST_CASE("") {} // not part of any test suite
+
+TEST_SUITE("math") {
+    TEST_CASE("") {} // part of the math test suite
+    TEST_CASE("") {} // part of the math test suite
+}
+
+TEST_SUITE_BEGIN("utils");
+
+TEST_CASE("") {} // part of the utils test suite
+
+TEST_SUITE_END();
+
+TEST_CASE("") {} // not part of any test suite
+```
+
+Test cases in specific test suites can then be executed with the help of filters - see [**command line**](commandline.mdx).
+
+## Decorators {#decorators}
+
+Test cases can be `decorated` with additional attributes like this:
+
+```c++
+TEST_CASE("name"
+          * doctest::description("shouldn't take more than 500ms")
+          * doctest::timeout(0.5)) {
+    // asserts
+}
+```
+
+Multiple decorators can be used at the same time. These are the currently supported decorators:
+
+- **`skip(bool = true)`** - Marks the test case to be skipped from execution - unless the ```--no-skip``` option is used
+- **`no_breaks(bool = true)`** - Assertions in the test case do not break into the debugger - useful in combination with `may_fail`/`should_fail`/`expected_failures`
+- **`no_output(bool = true)`** - Assertions in the test case have no output - useful in combination with `may_fail`/`should_fail`/`expected_failures`
+- **`may_fail(bool = true)`** - The test does not fail if any given assertion fails (but still reports it) - this is useful for marking work in progress, or known issues that you do not want to fix immediately but still want to track in tests
+- **`should_fail(bool = true)`** - Like **```may_fail()```** but the test fails if it passes - this can be useful if you want to be notified of accidental or third-party fixes
+- **`expected_failures(int)`** - Defines the number of assertions expected to fail in the test case - reported as a failure when the number of failed assertions differs from the declared expected failures
+- **`timeout(double)`** - The test case fails if its execution exceeds this limit (in seconds) - but does not terminate it - this requires subprocess support
+- **`test_suite("name")`** - Can be used on test cases to override (or just set) the test suite they are in
+- **`description("text")`** - A description for the test case
+
+The values taken by decorators are evaluated when the test case is registered (during global initialization) - before entering ```main()```, not before running them.
+
+Decorators can also be applied to test suite blocks, and all test cases within the block inherit them:
+
+```c++
+TEST_SUITE("some TS" * doctest::description("all tests will have this")) {
+    TEST_CASE("has a description from the surrounding test suite") {
+        // asserts
+    }
+}
+TEST_SUITE("some TS") {
+    TEST_CASE("no description even though in the same test suite as the one above") {
+        // asserts
+    }
+}
+```
+
+Test cases can override decorators they inherit from the surrounding test suite:
+
+```c++
+TEST_SUITE("not longer than 500ms" * doctest::timeout(0.5)) {
+    TEST_CASE("500ms limit") {
+        // asserts
+    }
+    TEST_CASE("200ms limit" * doctest::timeout(0.2)) {
+        // asserts
+    }
+}
+```
+
+------
+
+- Check out the [**subcases and BDD example**](https://github.com/doctest/doctest/blob/master/examples/all_features/subcases.cpp)
+- Check out the [**assertion macros example**](https://github.com/doctest/doctest/blob/master/examples/all_features/assertion_macros.cpp) to see how test suites are used
+- Tests are registered from top to bottom of each processed cpp after preprocessing and including the header, but there is no order between cpp files.

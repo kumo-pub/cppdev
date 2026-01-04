@@ -1,0 +1,137 @@
+# Turbo Hash Containers 使用指南
+
+`Turbo` 提供了一系列高性能容器，可作为 STL 容器的替代方案，但**不是完全的 drop-in 替换**，主要原因是 API 和行为上存在差异，例如指针稳定性（pointer stability）在某些操作后无法保证。
+
+Turbo 容器设计上通常更高效，但在特定场景下，STL 容器可能性能更优。特别注意：
+
+> Turbo 容器一般不保证插入或删除后元素的指针稳定性。
+
+---
+
+## 1. 支持的容器类型
+
+### 哈希表（Swiss Tables）
+
+Turbo 提供的哈希表统称为 “Swiss tables”，可替代 `std::unordered_map` / `std::unordered_set`：
+
+* `turbo::flat_hash_map`
+* `turbo::flat_hash_set`
+* `turbo::node_hash_map`
+* `turbo::node_hash_set`
+
+优势：
+
+* 支持 **异构查找**（heterogeneous lookup），避免不必要的类型转换。
+* `emplace({key, value})` 优化，减少不必要的 pair 构造。
+* 异构 `initializer_list` 支持，减少拷贝。
+* `erase` 方法时间复杂度为 O(1)，返回 void 而非迭代器。
+
+---
+
+## 2. 构造方式
+
+Swiss table 容器支持与 STL 相同的构造模式：
+
+```cpp
+// 默认构造
+turbo::flat_hash_set<std::string> set1;
+turbo::flat_hash_map<int, std::string> map1;
+
+// 初始化列表
+turbo::flat_hash_set<std::string> set2 = { "huey", "dewey", "louie" };
+turbo::flat_hash_map<int, std::string> map2 = { {1,"huey"}, {2,"dewey"} };
+
+// 拷贝构造
+turbo::flat_hash_set<std::string> set3(set2);
+turbo::flat_hash_map<int, std::string> map3(map2);
+
+// 拷贝赋值
+turbo::flat_hash_set<std::string> set4;
+set4 = set3;
+
+// 移动构造
+turbo::flat_hash_set<std::string> set5(std::move(set4));
+turbo::flat_hash_map<int, std::string> map5(std::move(map3));
+
+// 范围构造
+std::vector<std::string> v = {"a", "b"};
+turbo::flat_hash_set<std::string> set6(v.begin(), v.end());
+```
+
+---
+
+## 3. `flat_hash_map` / `flat_hash_set`
+
+* **存储方式**：值直接存储在槽数组中（flat layout）。
+* **迭代器/引用/指针**：重哈希时失效；移动操作不失效。
+* **内存占用**：O(`(sizeof(std::pair<const K,V>)+1) * bucket_count()`)
+* **负载因子**：最大 87.5%，触发扩容后减半。
+
+> 推荐用于一般用途。如果需要值指针稳定性，可使用 `flat_hash_map<Key, std::unique_ptr<Value>>`。
+
+---
+
+## 4. `node_hash_map` / `node_hash_set`
+
+* **存储方式**：每个元素单独分配节点（node），槽数组仅存指针。
+* **迭代器**：重哈希时失效；移动操作不失效。
+* **内存占用**：O(`sizeof(void*)*bucket_count() + sizeof(value_type)*size()`)
+* **用途**：
+
+* 需要键和值指针稳定性时。
+* 从 `std::unordered_map` / `hash_map` 自动迁移代码。
+* **注意**：大多数新代码应优先使用 flat 系列。
+
+---
+
+## 5. 使用示例
+
+```cpp
+// 普通 flat_hash_map
+turbo::flat_hash_map<int, std::string> numbers = {{1,"one"}, {2,"two"}};
+numbers.try_emplace(3, "three");
+
+// 指针值稳定性
+turbo::flat_hash_map<std::string, std::unique_ptr<std::string>> strings;
+strings.try_emplace("foo", turbo::make_unique<std::string>("bar"));
+```
+
+---
+
+## 6. 异构查找
+
+Swiss tables 支持异构查找，例如使用 `turbo::string_view` 查询 `std::string`：
+
+```cpp
+turbo::flat_hash_map<std::string, int> m;
+turbo::string_view key = "example";
+
+auto it = m.find(key); // 直接使用 string_view，无需构造 std::string
+```
+
+> 避免了临时对象的分配与拷贝，提高性能。
+
+---
+
+## 7. 迭代顺序不稳定
+
+* `Turbo` 容器不保证迭代顺序，即使 `std::unordered_map` 某些实现有确定顺序也不能依赖。
+* 特别注意浮点数累加等操作：迭代顺序不同可能导致非确定性结果。
+
+---
+
+## 8. 指针稳定性
+
+[^pointer-stability]: 指针稳定性意味着元素地址在元素存在期间不会改变。Turbo flat 容器在插入/删除后**不保证指针稳定性**，node 容器则保证节点地址稳定。
+
+---
+
+✅ **总结**：
+
+| 类型                  | 存储方式    | 指针稳定性 | 使用建议          |
+| ------------------- | ------- | ----- | ------------- |
+| `flat_hash_map/set` | Flat 数组 | 不保证   | 大多数新代码，快速访问   |
+| `node_hash_map/set` | 每元素节点   | 键值稳定  | 需要指针稳定性或迁移旧代码 |
+
+Turbo 哈希容器提供高性能、低内存占用和异构查找能力，但注意迭代顺序和指针稳定性与 STL 容器存在差异。
+

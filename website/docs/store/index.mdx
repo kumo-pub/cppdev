@@ -1,2 +1,45 @@
-# store
+---
+title: Storage Module Overview
+---
+
+# Storage Module Overview
+
+The **Store** module provides unified access and management for persistent storage. It covers **key-value stores**, **structured data formats**, and **large-scale storage backends**.
+
+The goal of this directory is to help developers and operators **understand which storage options are available, their intended use cases, and how to approach them in production**. Reading these documents will give you guidance on selecting storage for **large datasets, analytical workloads, or operationally manageable KV storage**.
+
+---
+
+## Directory Structure and Purpose
+
+| Category | Contents | Purpose / Problem Solved |
+|----------|----------|-------------------------|
+| **Key-Value Stores (KV)** | LevelDB, LMDB, RocksDB | Persistent key-value storage. Helps handle high-throughput storage of structured data with operational guidance on backups, snapshots, and key design. |
+| **Data Formats** | Parquet, Arrow, Avro, HDF5, NPY, OCR, Substrait | Formats for structured and semi-structured data. Useful for batch processing, analytics pipelines, or domain-specific data storage. |
+| **Cloud Storage & Distributed Backends** | AWS, Azure, GCS, HDFS | Guidance on integrating with large-scale storage backends. Focuses on operational integration rather than recommending one service over another. |
+
+---
+
+## What Problems Reading This Directory Solves
+
+1. **Understanding Storage Options:**
+- Which KV stores are suitable for different data sizes and operational requirements.
+- Which data formats are used for batch vs. in-memory analytics.
+- Awareness of distributed storage backends and their integration points.
+
+2. **Operational Awareness:**
+- Basic strategies for backup and snapshots in KV stores.
+- Guidance on key design patterns for efficient data access.
+- Understanding trade-offs between single-file and multi-file storage.
+
+3. **Preparation for Large-Scale Workloads:**
+- Provides knowledge needed to make storage decisions for production systems.
+- Helps operators anticipate performance, throughput, and reliability concerns.
+- Enables developers to structure applications for maintainable storage usage.
+
+---
+
+**Conclusion:**
+
+This directory consolidates **core storage knowledge** for both developers and operators. It does **not prescribe specific implementations**; instead, it focuses on **how storage is organized, why each type exists, and what problems it addresses**. Users can then explore individual submodules for more in-depth guidance and operational advice.
 

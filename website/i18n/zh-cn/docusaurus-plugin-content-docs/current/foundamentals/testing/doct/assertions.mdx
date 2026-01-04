@@ -1,0 +1,181 @@
+# Assertions
+
+## Assertion Macros {#assertion-macros}
+Most testing frameworks feature a large number of assertion macros to capture all possible forms of conditions (``_EQUALS``, ``_NOTEQUALS``, ``_GREATER_THAN``, etc.).
+
+**doctest** is different (though in this regard it is like [**Catch**](https://github.com/catchorg/Catch2)). Because it decomposes comparison expressions, most of these forms are simplified to one or two forms that you will use consistently. That said, there is still a rich set of helper macros available.
+
+All assertion macros have 3 assertion severity levels:
+
+- ```REQUIRE``` - If the assertion fails, this level immediately exits the test case and marks the test case as failed.
+- ```CHECK``` - If the assertion fails, this level marks the test case as failed but continues executing the test case.
+- ```WARN``` - This level only prints a message when the assertion fails but does not mark the test case as failed.
+
+The `CHECK` level is useful if you have a series of essentially orthogonal assertions and want to see all results instead of stopping at the first failure.
+
+All assertions evaluate the expression only once, and if they fail - the values are correctly [**stringified**](stringification.mdx).
+
+Note that the `REQUIRE` level of assertions uses exceptions to end the current test case. Using assertions of this level in destructors of user-defined classes can be dangerous - if the destructor is called during stack unwinding due to an exception and a `REQUIRE` assertion fails, the program will terminate. Additionally, starting from C++11, all destructors are ```noexcept(true)``` by default unless specified otherwise, so such an assertion will cause ```std::terminate()``` to be called.
+
+## Expression-Decomposing Asserts {#expression-decompositing-asserts}
+They take the form of ```CHECK(expression)``` (the same applies to ```REQUIRE``` and ```WARN```).
+
+The ```expression``` can be a binary comparison such as ```a == b```, or a single-condition check such as ```vec.isEmpty()```.
+
+If an exception is thrown, it is caught, reported, and counted as a failure (unless the assertion level is ```WARN```).
+
+Examples:
+
+```c++
+CHECK(flags == state::alive | state::moving);
+CHECK(thisReturnsTrue());
+REQUIRE(i < 42);
+```
+- Negative assertions - ```<LEVEL>_FALSE(expression)``` - Evaluates the expression and records the _logical NOT_ of the result.
+
+These forms exist to solve the problem where `!`-prefixed expressions cannot be decomposed correctly.
+
+Example:
+
+```c++
+REQUIRE_FALSE(thisReturnsFalse());
+```
+- Using the [**```DOCTEST_CONFIG_SUPER_FAST_ASSERTS```**](configuration.mdx#doctest_config_super_fast_asserts) configuration option can make assertions compile up to [**31-63%**](benchmarks.mdx#cost-of-an-assertion-macro) faster!
+- These assertions also have a ```_MESSAGE``` form - such as ```CHECK_MESSAGE(expression, message)```, which is essentially a scoped [**INFO()**](logging.mdx#info) logging macro paired with a `CHECK` macro - meaning the message will only be relevant to that assertion. Binary/unary assertions do not have this variant yet.
+
+Example:
+
+```c++
+INFO("this is relevant to all asserts, and here is some var: ", local);
+
+CHECK_MESSAGE(a < b, "relevant only to this assert ", other_local, " more text!");
+
+CHECK(b < c); // here only the first INFO() will be relevant
+```
+
+For more information about the `INFO()` macro, visit the [Logging page](logging.mdx).
+
+
+## Binary and Unary Asserts {#binary-and-unary-asserts}
+These assertions do not use templates to decompose comparison expressions into left and right parts.
+
+They have the same guarantees as expression-decomposing assertions but compile [**57-68%**](benchmarks.mdx#cost-of-an-assertion-macro) faster.
+
+```<LEVEL>``` is one of three possible values: ```REQUIRE```/```CHECK```/```WARN```.
+
+- ```<LEVEL>_EQ(left, right)``` - ```<LEVEL>(left == right)```
+- ```<LEVEL>_NE(left, right)``` - ```<LEVEL>(left != right)```
+- ```<LEVEL>_GT(left, right)``` - ```<LEVEL>(left >  right)```
+- ```<LEVEL>_LT(left, right)``` - ```<LEVEL>(left <  right)```
+- ```<LEVEL>_GE(left, right)``` - ```<LEVEL>(left >= right)```
+- ```<LEVEL>_LE(left, right)``` - ```<LEVEL>(left <= right)```
+- ```<LEVEL>_UNARY(expr)``` - ```<LEVEL>(expr)```
+- ```<LEVEL>_UNARY_FALSE(expr)``` - ```<LEVEL>_FALSE(expr)```
+
+Using the [**```DOCTEST_CONFIG_SUPER_FAST_ASSERTS```**](configuration.mdx#doctest_config_super_fast_asserts) configuration option can make binary assertions compile up to [**84-91%**](benchmarks.mdx#cost-of-an-assertion-macro) faster!
+
+## Exceptions {#exceptions}
+```<LEVEL>``` is one of three possible values: ```REQUIRE```/```CHECK```/```WARN```.
+
+- ```<LEVEL>_THROWS(expression)```
+
+Expects an exception (of any type) to be thrown during the evaluation of the expression.
+
+- ```<LEVEL>_THROWS_AS(expression, exception_type)```
+
+Expects an exception of the _specified type_ to be thrown during the evaluation of the expression.
+
+Note that ```const``` and ```&``` are added to the exception type if missing (users should not care about this) - the standard practice for exceptions in C++ is to ```throw by value, catch by (const) reference```.
+
+```c++
+CHECK_THROWS_AS(func(), const std::exception&);
+CHECK_THROWS_AS(func(), std::exception); // same as above
+```
+
+- ```<LEVEL>_THROWS_WITH(expression, c_string)```
+
+Expects an exception to be thrown during the evaluation of the expression, which successfully converts to the _specified c-string_ (see [**Translated Exceptions**](stringification.mdx#translated-exceptions)).
+
+```c++
+CHECK_THROWS_WITH(func(), "invalid operation!");
+```
+
+- ```<LEVEL>_THROWS_WITH_AS(expression, c_string, exception_type)```
+
+This is a combination of ```<LEVEL>_THROWS_WITH``` and ```<LEVEL>_THROWS_AS```.
+
+```c++
+CHECK_THROWS_WITH_AS(func(), "invalid operation!", std::runtime_error);
+```
+
+- ```<LEVEL>_NOTHROW(expression)```
+
+Expects no exception to be thrown during the evaluation of the expression.
+
+Note that these assertions also have a ```_MESSAGE``` form - such as ```CHECK_THROWS_MESSAGE(expression, message)``` - these work the same way as the ```_MESSAGE``` forms of the regular macros (```CHECK_MESSAGE(a < b, "this should not fail")```) as described earlier.
+
+Also note that a singular expression is required, meaning a function call, an IIFE (immediately invoked function expression) like `[&]() { throw 1; }()` (note the `()` at the end), or similar. Passing a function or lambda alone will **not work**.
+
+One can use the [**````DOCTEST_CONFIG_VOID_CAST_EXPRESSIONS````**](configuration.mdx#doctest_config_void_cast_expressions) configuration identifier to cast expressions in these assertions to void to avoid warnings or other issues - for example, "nodiscard statements whose results are checked". However, this will limit the ability to write entire `{}` code blocks as expressions (or multiple statements), but a simple lambda can be used in such cases. This should have been the default behavior from day one of the framework...
+
+## Using Asserts Outside of a Testing Context {#using-asserts-out-of-a-testing-context}
+Assertions can be used outside of a testing context (in code not called from ```TEST_CASE()```) instead of [```assert()```](https://en.cppreference.com/w/cpp/error/assert).
+
+It is still necessary to create a `doctest::Context` object somewhere and set it as the default using the `setAsDefaultForAssertsOutOfTestCases()` method before the assertions can work. A handler can be registered by calling the `setAssertHandler()` method on the context object. If no handler is set, `std::abort()` is called on failure.
+
+Results are best when using the [**````DOCTEST_CONFIG_SUPER_FAST_ASSERTS````**](configuration.mdx#doctest_config_super_fast_asserts) configuration identifier.
+
+Check out the [**example**](https://github.com/doctest/doctest/blob/master/examples/all_features/asserts_used_outside_of_tests.cpp) showing how this is done.
+For more information, see the [**feature request issue**](https://github.com/doctest/doctest/issues/114).
+
+Currently, [**logging macros**](logging.mdx) cannot be used for additional context with asserts outside of test runs. This means the ``_MESSAGE```` variants of assertions are also unavailable - since they are just a packaged ```INFO()``` followed by an assertion.
+
+## String Containment {#string-containment}
+```doctest::Contains``` can be used to check if the string passed to its constructor is contained within the string it is compared against. Here is a simple example:
+
+```c++
+REQUIRE("foobar" == doctest::Contains("foo"));
+```
+
+It can also be used with the `THROWS_WITH` family of assertion macros to check if the thrown exception (when [converted to a string](stringification.mdx#translated-exceptions)) contains the provided string. Here is another example:
+```c++
+REQUIRE_THROWS_WITH(func(), doctest::Contains("Oopsie"));
+```
+
+## Floating-Point Comparisons {#floating-point-comparisons}
+When comparing floating-point numbers - especially if at least one of them has been computed - great care must be taken to allow for rounding errors and imprecise representations.
+
+**doctest** provides a way to perform tolerant comparisons of floating-point values by using a wrapper class called `doctest::Approx`.
+```doctest::Approx``` can be used on either side of a comparison expression. It overloads the comparison operators to take relative tolerance into account. Here is a simple example:
+
+```c++
+REQUIRE(performComputation() == doctest::Approx(2.1));
+```
+
+**doctest** provides a way to perform tolerant comparisons of floating-point values by using a wrapper class called `doctest::Approx`. ```doctest::Approx``` can be used on either side of a comparison expression. Here is a simple example:
+
+```c++
+REQUIRE(22.0/7 == doctest::Approx(3.141).epsilon(0.01)); // allow for a 1% error
+```
+
+When working with very large or very small numbers, it can be useful to specify a scale, which can be done by calling the ```scale()``` method on an instance of ```doctest::Approx```.
+
+## NaN Checking {#nan-checking}
+Two NaN floating-point numbers do not compare equal. This makes checking for NaN when capturing values very inconvenient.
+
+```c++
+CHECK(std::isnan(performComputation())); // does not capture the result of the call
+```
+
+**doctest** provides `doctest::IsNaN`, which can be used in assertions to check if a floating-point (or any other floating-point primitive type) is indeed NaN, outputting the actual value if it is not.
+
+```c++
+CHECK(doctest::IsNaN(performComputation())); // captures the result!
+```
+
+`IsNaN` is able to capture the value even when negated with `!`.
+
+--------
+
+- Check out the [**example**](https://github.com/doctest/doctest/blob/master/examples/all_features/alternative_macros.cpp) showing many of these macros
+- Do not wrap assertion macros in ```try```/```catch``` blocks - the REQUIRE macro throws an exception to end test case execution!

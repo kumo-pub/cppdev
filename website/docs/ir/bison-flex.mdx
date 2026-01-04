@@ -1,2 +1,181 @@
-# bison-flex
+# Bison & Flex
 
+Bison and Flex form a traditional **parser generator toolchain** widely used in C/C++ environments.
+They are suitable for scenarios where you need **custom language parsing**, including SQL-like expressions, DSLs, or expression evaluation.
+
+---
+
+## What It Is
+
+- **Flex (lexical analyzer)**: Tokenizes input text into symbols.
+- **Bison (parser generator)**: Builds a parser from grammar rules and produces a parse tree or AST.
+- Together, they allow building a **full compiler-like pipeline**:
+  `Input Text -> Lexical Tokens -> AST/Parse Tree -> Execution/Translation`.
+
+---
+
+## When to Use
+
+- **Small to medium DSLs** in C/C++ projects.
+- **Offline language compilation or code generation**, where control over parsing and AST is important.
+- **Real-time SQL or expression parsing** in C++ backend systems; Bison has no mature alternative in C++ for complex grammars.
+
+> Traditional business applications often **do not need** this level of IR or parsing control.
+
+---
+
+## Advantages
+
+- Mature, stable in C/C++ ecosystems.
+- Fine-grained control of grammar, parsing, and AST generation.
+- Integrates with C++ code directly.
+- Many **real-world examples**, including SQL parsers in production systems.
+
+---
+
+## Considerations
+
+- **C mode recommended** for better ecosystem compatibility; C++ mode is less mature.
+- Integration is more complex than PEGTL or DSL-based proto parsers.
+- Parsing performance is closely related to **expression complexity** and grammar design, including **backtracking requirements**.
+- Good for **offline compilation pipelines**, not primarily for high-throughput online services.
+
+---
+
+## Minimal Example
+
+This example shows a **full Flex -> Bison -> C++ integration** pipeline.
+
+**Lexer (lexer.l)**
+
+```c
+%{
+#include "parser.tab.h"
+#include <cstdlib>
+%}
+
+%%
+SELECT          return SELECT;
+FROM            return FROM;
+WHERE           return WHERE;
+[0-9]+          { yylval.ival = atoi(yytext); return NUMBER; }
+[a-zA-Z_]+      { yylval.sval = strdup(yytext); return IDENTIFIER; }
+[ \t\n]+        /* skip whitespace */;
+.               return *yytext;
+%%
+````
+
+**Parser (parser.y)**
+
+```c
+%{
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+struct Column { string name; };
+struct Table { string name; };
+struct Condition { string expr; };
+struct Query {
+    vector<Column> columns;
+    Table table;
+    Condition condition;
+};
+Query parsedQuery;
+%}
+
+%union {
+    int ival;
+    char* sval;
+}
+
+%token SELECT FROM WHERE IDENTIFIER NUMBER
+%type <sval> IDENTIFIER
+%type <ival> NUMBER
+
+%%
+
+query:
+      SELECT select_list FROM table_name where_clause
+    ;
+
+select_list:
+      IDENTIFIER { parsedQuery.columns.push_back({$1}); free($1); }
+    | select_list ',' IDENTIFIER { parsedQuery.columns.push_back({$3}); free($3); }
+    ;
+
+table_name:
+      IDENTIFIER { parsedQuery.table.name = $1; free($1); }
+    ;
+
+where_clause:
+      WHERE condition { parsedQuery.condition.expr = $2; free($2); }
+    | /* empty */ { parsedQuery.condition.expr = ""; }
+    ;
+
+condition:
+      IDENTIFIER '>' NUMBER
+      {
+          string cond = string($1) + ">" + to_string($3);
+          $$ = strdup(cond.c_str());
+          free($1);
+      }
+    ;
+%%
+```
+
+**C++ Integration (main.cpp)**
+
+```cpp
+#include <iostream>
+extern "C" {
+    int yyparse();
+    extern FILE* yyin;
+}
+
+int main() {
+    FILE* f = fopen("example.sql", "r");
+    if (!f) {
+        std::cerr << "Cannot open file" << std::endl;
+        return 1;
+    }
+    yyin = f;
+    yyparse();
+    fclose(f);
+    return 0;
+}
+```
+
+**CMake Build Example**
+
+```cmake
+cmake_minimum_required(VERSION 3.10)
+project(sql_parser)
+
+find_package(FLEX REQUIRED)
+find_package(BISON REQUIRED)
+
+BISON_TARGET(Parser parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.tab.cpp)
+FLEX_TARGET(Lexer lexer.l ${CMAKE_CURRENT_BINARY_DIR}/lex.yy.cpp)
+ADD_FLEX_BISON_DEPENDENCY(Lexer Parser)
+
+add_executable(sql_parser main.cpp ${BISON_Parser_OUTPUTS} ${FLEX_Lexer_OUTPUTS})
+```
+
+---
+
+## References
+
+* [GNU Bison Official](https://www.gnu.org/software/bison/)
+* [Flex Official](https://westes.github.io/flex/)
+
+---
+
+### Summary
+
+* **Integration complexity**: Medium–High (requires C/C++ linkage, memory management).
+* **Performance**: Good for offline or limited online parsing; depends on grammar complexity.
+* **Best use cases**: Offline compilation, expression evaluation, SQL parsing in backend systems.
+
+> The minimal example demonstrates **complete pipeline integration**, which is critical for readers to understand practical usage, not just fragments.

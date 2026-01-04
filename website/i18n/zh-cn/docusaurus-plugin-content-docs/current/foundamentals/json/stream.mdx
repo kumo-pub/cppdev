@@ -1,0 +1,437 @@
+# 流（Streams）
+
+在 Merak 中，`merak::json::Stream` 是一个概念（C++ concepts），用于读取和写入 JSON。这里我们首先介绍如何使用 Merak 提供的各种流，然后解释如何自定义流。
+
+[TOC]
+
+# 内存流 {#MemoryStreams}
+
+内存流在内存中存储 JSON。
+
+## StringStream（输入）{#StringStream}
+
+`StringStream` 是最基本的输入流，表示存储在内存中的完整只读 JSON。它定义在 `merak/json.h` 中。
+
+```cpp
+#include "merak/json/document.h" // 包含 "merak/json.h"
+
+using namespace merak::json;
+
+// ...
+const char json[] = "[1, 2, 3, 4]";
+StringStream s(json);
+
+Document d;
+d.ParseStream(s);
+```
+
+由于这是一个非常常见的使用模式，RapidJSON 提供了 `Document::Parse(const char*)` 来实现完全相同的功能：
+
+```cpp
+// ...
+const char json[] = "[1, 2, 3, 4]";
+Document d;
+d.Parse(json);
+```
+
+注意，`StringStream` 是 `GenericStringStream<UTF8<> >` 的 typedef；用户可以使用其他编码类来表示流使用的字符集。
+
+## StringBuffer（输出）{#StringBuffer}
+
+`StringBuffer` 是一个简单的输出流。它为写入整个 JSON 分配一个内存缓冲区。你可以通过 `GetString()` 获取该缓冲区。
+
+```cpp
+#include "merak/json/stringbuffer.h"
+#include <merak/json/writer.h>
+
+StringBuffer buffer;
+Writer<StringBuffer> writer(buffer);
+d.Accept(writer);
+
+const char* output = buffer.GetString();
+```
+
+当缓冲区溢出时，它会自动增加容量。默认容量为 256 个字符（UTF8 为 256 字节，UTF16 为 512 字节等）。用户可以提供自定义分配器和初始容量：
+
+```cpp
+StringBuffer buffer1(0, 1024); // 使用自身分配器，初始大小 = 1024
+StringBuffer buffer2(allocator, 1024);
+```
+
+如果未指定分配器，`StringBuffer` 会自行实例化一个内部分配器。
+
+同样，`StringBuffer` 是 `GenericStringBuffer<UTF8<> >` 的 typedef。
+
+# 文件流 {#FileStreams}
+
+当从文件解析 JSON 时，你可以将整个 JSON 读取到内存中，然后使用上面描述的 `StringStream`。
+
+但是，如果 JSON 很大或内存有限，你可以使用 `FileReadStream`。它只读取文件的一部分到缓冲区并解析该部分。当缓冲区中的字符全部被消费后，它会读取下一部分。
+
+## FileReadStream（输入）{#FileReadStream}
+
+`FileReadStream` 通过 `FILE` 指针读取文件。用户需要提供缓冲区：
+
+```cpp
+#include "merak/json/filereadstream.h"
+#include <cstdio>
+
+using namespace merak::json;
+
+FILE* fp = fopen("big.json", "rb"); // 在非 Windows 平台使用 "r"
+
+char readBuffer[65536];
+FileReadStream is(fp, readBuffer, sizeof(readBuffer));
+
+Document d;
+d.ParseStream(is);
+
+fclose(fp);
+```
+
+与 `StringStream` 不同，`FileReadStream` 是字节流，不处理编码。如果文件不是 UTF-8 编码，可以使用 `EncodedInputStream`（稍后讨论）包装字节流。
+
+除了读取文件，用户也可以使用 `FileReadStream` 从 `stdin` 读取。
+
+## FileWriteStream（输出）{#FileWriteStream}
+
+`FileWriteStream` 是一个带缓冲的输出流，其用法与 `FileReadStream` 非常类似：
+
+```cpp
+#include "merak/json/filewritestream.h"
+#include <merak/json/writer.h>
+#include <cstdio>
+
+using namespace merak::json;
+
+Document d;
+d.Parse(json);
+// ...
+
+FILE* fp = fopen("output.json", "wb"); // 在非 Windows 平台使用 "w"
+
+char writeBuffer[65536];
+FileWriteStream os(fp, writeBuffer, sizeof(writeBuffer));
+
+Writer<FileWriteStream> writer(os);
+d.Accept(writer);
+
+fclose(fp);
+```
+
+它也可以将输出定向到 `stdout`。
+
+# iostream 包装器 {#iostreamWrapper}
+
+根据用户需求，RapidJSON 提供了用于 `std::basic_istream` 和 `std::basic_ostream` 的官方包装类。但是请注意，它们的性能明显低于上面提到的其他流。
+
+## IStreamWrapper {#IStreamWrapper}
+
+`IStreamWrapper` 将任何继承自 `std::istream` 的类（如 `std::istringstream`、`std::stringstream`、`std::ifstream`、`std::fstream`）包装为 Merak 输入流：
+
+```cpp
+#include <merak/json/document.h>
+#include <merak/json/istreamwrapper.h>
+#include <fstream>
+
+using namespace merak::json;
+using namespace std;
+
+ifstream ifs("test.json");
+IStreamWrapper isw(ifs);
+
+Document d;
+d.ParseStream(isw);
+```
+
+对于继承自 `std::wistream` 的类，使用 `WIStreamWrapper`。
+
+## OStreamWrapper {#OStreamWrapper}
+
+同样，`OStreamWrapper` 将任何继承自 `std::ostream` 的类（如 `std::ostringstream`、`std::stringstream`、`std::ofstream`、`std::fstream`）包装为 Merak 输出流：
+
+```cpp
+#include <merak/json/document.h>
+#include <merak/json/ostreamwrapper.h>
+#include <merak/json/writer.h>
+#include <fstream>
+
+using namespace merak::json;
+using namespace std;
+
+Document d;
+d.Parse(json);
+
+// ...
+
+ofstream ofs("output.json");
+OStreamWrapper osw(ofs);
+
+Writer<OStreamWrapper> writer(osw);
+d.Accept(writer);
+```
+
+对于继承自 `std::wostream` 的类，使用 `WOStreamWrapper`。
+
+# 编码流 {#EncodedStreams}
+
+编码流本身不存储 JSON；它们通过包装字节流提供基本的编码/解码功能。
+
+如前所述，我们可以直接读取 UTF-8 字节流。然而，UTF-16 和 UTF-32 存在字节序问题。为了正确处理字节序，读取时需要将字节转换为字符（例如 UTF-16 使用 `wchar_t`），写入时将字符转换为字节。
+
+此外，还需要处理 [字节序标记（BOM）](http://en.wikipedia.org/wiki/Byte_order_mark)。从字节流读取时，需要检测 BOM 或在存在时直接跳过它。将 JSON 写入字节流时，可以选择写入 BOM。
+
+如果流的编码在编译时已知，可以使用 `EncodedInputStream` 和 `EncodedOutputStream`。如果流可能包含 UTF-8、UTF-16LE、UTF-16BE、UTF-32LE 或 UTF-32BE 编码的 JSON（编码仅在运行时已知），可以使用 `AutoUTFInputStream` 和 `AutoUTFOutputStream`。这些流定义在 `merak/json/encodedstream.h`。
+
+注意，这些编码流可以应用于文件以外的流——例如，你可以用编码流包装内存缓冲区或自定义字节流。
+## EncodedInputStream {#EncodedInputStream}
+
+`EncodedInputStream` 有两个模板参数：
+
+1. `Encoding` 类型（例如在 `merak/json/encodings.h` 中定义的 `UTF8`、`UTF16LE` 等）
+2. 被包装流的类型
+
+```cpp
+#include "merak/json/document.h"
+#include "merak/json/filereadstream.h"   // FileReadStream
+#include "merak/json/encodedstream.h"    // EncodedInputStream
+#include <cstdio>
+
+using namespace merak::json;
+
+FILE* fp = fopen("utf16le.json", "rb"); // 在非 Windows 平台使用 "r"
+
+char readBuffer[256];
+FileReadStream bis(fp, readBuffer, sizeof(readBuffer));
+
+EncodedInputStream<UTF16LE<>, FileReadStream> eis(bis);  // 用 eis 包装 bis
+
+Document d; // Document 是 GenericDocument<UTF8<> >
+d.ParseStream<0, UTF16LE<> >(eis);  // 将 UTF-16LE 文件解析为内存中的 UTF-8
+
+fclose(fp);
+```
+
+## EncodedOutputStream {#EncodedOutputStream}
+
+`EncodedOutputStream` 用法类似，但其构造函数有一个 `bool putBOM` 参数，用于控制是否向输出字节流写入 BOM：
+
+```cpp
+#include "merak/json/filewritestream.h"  // FileWriteStream
+#include "merak/json/encodedstream.h"    // EncodedOutputStream
+#include <merak/json/writer.h>
+#include <cstdio>
+
+Document d;         // Document 是 GenericDocument<UTF8<> >
+// ...
+
+FILE* fp = fopen("output_utf32le.json", "wb"); // 在非 Windows 平台使用 "w"
+
+char writeBuffer[256];
+FileWriteStream bos(fp, writeBuffer, sizeof(writeBuffer));
+
+typedef EncodedOutputStream<UTF32LE<>, FileWriteStream> OutputStream;
+OutputStream eos(bos, true);   // 写入 BOM
+
+Writer<OutputStream, UTF8<>, UTF32LE<>> writer(eos);
+d.Accept(writer);   // 将内存中的 UTF-8 JSON 生成 UTF32-LE 文件
+
+fclose(fp);
+```
+
+## AutoUTFInputStream {#AutoUTFInputStream}
+
+有时应用需要处理所有支持的 JSON 编码。`AutoUTFInputStream` 会先使用 BOM 检测编码。如果没有 BOM，则使用有效 JSON 特征检测编码。如果两者都失败，则回退到构造函数提供的 UTF 类型。
+
+由于字符（码元）可以是 8 位、16 位或 32 位，`AutoUTFInputStream` 需要一个至少能存储 32 位的字符类型。可以使用 `unsigned` 作为模板参数：
+
+```cpp
+#include "merak/json/document.h"
+#include "merak/json/filereadstream.h"   // FileReadStream
+#include "merak/json/encodedstream.h"    // AutoUTFInputStream
+#include <cstdio>
+
+using namespace merak::json;
+
+FILE* fp = fopen("any.json", "rb"); // 在非 Windows 平台使用 "r"
+
+char readBuffer[256];
+FileReadStream bis(fp, readBuffer, sizeof(readBuffer));
+
+AutoUTFInputStream<unsigned, FileReadStream> eis(bis);  // 用 eis 包装 bis
+
+Document d;         // Document 是 GenericDocument<UTF8<> >
+d.ParseStream<0, AutoUTF<unsigned> >(eis); // 将任意 UTF 编码文件解析为内存中的 UTF-8
+
+fclose(fp);
+```
+
+要指定流的编码，请在 `ParseStream()` 的参数中使用 `AutoUTF<CharType>`（如上例所示）。
+
+可以使用 `UTFType GetType()` 获取检测到的 UTF 类型，使用 `HasBOM()` 检查输入流是否包含 BOM。
+
+## AutoUTFOutputStream {#AutoUTFOutputStream}
+
+同样地，为了在运行时选择输出编码，可以使用 `AutoUTFOutputStream`。该类本身不是“自动”的——你需要在运行时指定 UTF 类型以及是否写入 BOM：
+
+```cpp
+using namespace merak::json;
+
+void WriteJSONFile(FILE* fp, UTFType type, bool putBOM, const Document& d) {
+    char writeBuffer[256];
+    FileWriteStream bos(fp, writeBuffer, sizeof(writeBuffer));
+
+    typedef AutoUTFOutputStream<unsigned, FileWriteStream> OutputStream;
+    OutputStream eos(bos, type, putBOM);
+
+    Writer<OutputStream, UTF8<>, AutoUTF<> > writer(eos);
+    d.Accept(writer);
+}
+```
+
+`AutoUTFInputStream` / `AutoUTFOutputStream` 比 `EncodedInputStream` / `EncodedOutputStream` 使用更方便，但会带来少量运行时开销。
+
+# 自定义流 {#CustomStream}
+
+除了内存/文件流，用户可以创建自定义流类以适配 Merak API——例如网络流或从压缩文件读取的流。
+
+Merak 使用模板组合不同类型。只要实现了所有必需接口，一个类就可以作为流。流概念定义在 `merak/json.h` 的注释中：
+
+```cpp
+concept Stream {
+    typename Ch;    //!< 流的字符类型
+
+    //! 读取当前字符，但不移动读指针
+    Ch Peek() const;
+
+    //! 读取当前字符，并将读指针移动到下一个字符
+    Ch Take();
+
+    //! 获取读指针位置
+    //! \return 自开始读取以来的字符数
+    size_t Tell();
+
+    //! 从当前读指针开始写入操作
+    //! \return 写入缓冲区的起始指针
+    Ch* PutBegin();
+
+    //! 写入一个字符
+    void Put(Ch c);
+
+    //! 刷新缓冲区
+    void Flush();
+
+    //! 完成写入操作
+    //! \param begin PutBegin() 返回的指针
+    //! \return 写入的字符数
+    size_t PutEnd(Ch* begin);
+}
+```
+
+* 输入流 **必须** 实现 `Peek()`、`Take()` 和 `Tell()`。
+* 输出流 **必须** 实现 `Put()` 和 `Flush()`。
+* `PutBegin()` 和 `PutEnd()` 是用于 *in situ* 解析的特殊接口。普通流不需要实现，但必须提供空实现以避免编译错误。
+
+## 示例：istream 包装器 {#ExampleIStreamWrapper}
+
+下面是一个简单示例，用于包装 `std::istream`，仅实现三个必需函数：
+
+```cpp
+class MyIStreamWrapper {
+public:
+    typedef char Ch;
+
+    MyIStreamWrapper(std::istream& is) : is_(is) {
+    }
+
+    Ch Peek() const { // 1
+        int c = is_.peek();
+        return c == std::char_traits<char>::eof() ? '\0' : (Ch)c;
+    }
+
+    Ch Take() { // 2
+        int c = is_.get();
+        return c == std::char_traits<char>::eof() ? '\0' : (Ch)c;
+    }
+
+    size_t Tell() const { return (size_t)is_.tellg(); } // 3
+
+    Ch* PutBegin() { assert(false); return 0; }
+    void Put(Ch) { assert(false); }
+    void Flush() { assert(false); }
+    size_t PutEnd(Ch*) { assert(false); return 0; }
+
+private:
+    MyIStreamWrapper(const MyIStreamWrapper&);
+    MyIStreamWrapper& operator=(const MyIStreamWrapper&);
+
+    std::istream& is_;
+};
+```
+
+用户可以用它包装 `std::stringstream`、`std::ifstream` 等实例：
+
+```cpp
+const char* json = "[1,2,3,4]";
+std::stringstream ss(json);
+MyIStreamWrapper is(ss);
+
+Document d;
+d.ParseStream(is);
+```
+
+注意，由于标准库内部开销，这种实现可能比 Merak 的内存/文件流性能低。
+
+## 示例：ostream 包装器 {#ExampleOStreamWrapper}
+
+下面示例用于包装 `std::ostream`，仅实现两个必需函数：
+
+```cpp
+class MyOStreamWrapper {
+public:
+    typedef char Ch;
+
+    MyOStreamWrapper(std::ostream& os) : os_(os) {
+    }
+
+    Ch Peek() const { assert(false); return '\0'; }
+    Ch Take() { assert(false); return '\0'; }
+    size_t Tell() const { assert(false); return 0; }
+
+    Ch* PutBegin() { assert(false); return 0; }
+    void Put(Ch c) { os_.put(c); }                  // 1
+    void Flush() { os_.flush(); }                   // 2
+    size_t PutEnd(Ch*) { assert(false); return 0; }
+
+private:
+    MyOStreamWrapper(const MyOStreamWrapper&);
+    MyOStreamWrapper& operator=(const MyOStreamWrapper&);
+
+    std::ostream& os_;
+};
+```
+
+用户可以用它包装 `std::stringstream`、`std::ofstream` 等实例：
+
+```cpp
+Document d;
+// ...
+
+std::stringstream ss;
+MyOStreamWrapper os(ss);
+
+Writer<MyOStreamWrapper> writer(os);
+d.Accept(writer);
+```
+
+注意，由于标准库内部开销，这种实现可能比 Merak 的内存/文件流性能低。
+
+# 总结 {#Summary}
+
+本节介绍了 Merak 提供的各种流类：
+
+* 内存流简单直观。
+* 对于存储在文件中的 JSON，文件流可减少解析和生成所需的内存。
+* 编码流在字节流和字符流之间转换，处理字节序和 BOM。
+* 用户可以使用简单接口创建自定义流，以支持特殊 I/O 场景。
+

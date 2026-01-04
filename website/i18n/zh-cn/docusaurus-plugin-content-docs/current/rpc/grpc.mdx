@@ -1,0 +1,222 @@
+---
+title: gRPC
+---
+
+## 1. gRPC 的实际用途
+
+在真实生产系统中，入口 RPC 层通常不是热点数据路径。
+它是请求流的 **控制平面**。
+
+该层通常负责：
+
+* 认证与授权
+* 请求路由
+* 配额和限流
+* A/B 测试与灰度发布
+* Fan-out 到多个后端服务
+* 聚合多个响应
+* 超时与重试策略
+* 元数据传播（trace id、user id、locale 等）
+* 可观测性（指标、追踪、日志）
+
+这些关注点与原始吞吐量无关，重点在于**控制与塑造流量**。
+
+gRPC 正是为这一层设计的。
+
+---
+
+## 2. 为什么 gRPC 并非追求极限 QPS
+
+常见宣传如“单节点百万 QPS”在真实业务系统中大多不现实。
+
+典型服务节点存在：
+
+* 锁与互斥量
+* 内存分配
+* 序列化（protobuf）
+* TLS
+* 追踪
+* 日志
+* 缓存访问
+* 线程调度
+* 业务逻辑
+
+即使优化良好的生产服务，通常运行在：
+
+* CPU 利用率 50%–70%
+* 每节点 QPS 5k–30k
+
+超过这个范围，安全裕度会崩塌。
+任何流量尖峰、故障切换或热点分片都可能导致系统不可用。
+
+尤其是使用以下系统时：
+
+* Raft
+* 单线程状态机
+* 有序日志
+* 事务写入
+
+在这些系统中，QPS 通常受单线程路径限制。
+
+gRPC 正是考虑到这些现实约束而设计的。
+它优先保证 **正确性、可观测性和可控性**，而非纸面上的性能基准。
+
+---
+
+## 3. gRPC 在 Kumo 的位置
+
+在 Kumo 中，gRPC 用于 **业务与集成边界**：
+
+```
+Clients
+|
+|  (gRPC)
+v
+业务 API 层
+|
+|  (fan-out, 路由, 策略)
+v
+高 QPS 内部服务（KV、搜索、存储、计算）
+```
+
+这一层：
+
+* 接收多语言请求
+* 调用多个下游系统
+* 应用路由和策略
+* 控制流量
+
+这里不是追求极限 QPS 的地方，而是保持系统稳定、可观测和可演进的层。
+
+---
+
+## 4. 为什么偏好 gRPC
+
+gRPC 提供了许多在分布式系统中难以正确实现的功能：
+
+* 超时/截止时间传播
+* 请求取消
+* 结构化元数据
+* 标准错误模型
+* 流式处理
+* 背压
+* 负载均衡钩子
+* 多语言代码生成
+* 完整生态支持
+
+在真实分布式系统中，这些都是必需的，用于构建可控流水线。
+不使用 gRPC，几乎等于重新实现这些功能。
+
+---
+
+## 5. 多语言生态
+
+业务层通常需要连接：
+
+* Python
+* Java
+* Go
+* Node.js
+* C++
+* Rust
+
+gRPC 是少数在所有主要语言中提供 **生产级一流支持** 的 RPC 系统。
+
+因此非常适合：
+
+* 公共 API
+* 微服务
+* 外部系统集成
+* 工具和自动化
+
+---
+
+## 6. C++ 集成模式
+
+在 C++ 中，gRPC 依赖多个组件：
+
+* protobuf
+* grpc
+* 传输层（c-ares、TLS 等）
+
+手动集成较为繁琐。
+
+在 Kumo 中，这由 `kmpkg` 统一管理：
+
+* 预编译 gRPC
+* Protobuf
+* TLS 栈
+* 版本一致性
+
+复杂性被集中化、标准化处理。
+
+---
+
+## 7. 最小 C++ 示例
+
+服务定义：
+
+```proto
+syntax = "proto3";
+
+service Greeter {
+  rpc SayHello (HelloRequest) returns (HelloReply);
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+}
+```
+
+服务端：
+
+```cpp
+class GreeterServiceImpl final : public Greeter::Service {
+  grpc::Status SayHello(grpc::ServerContext* context,
+                        const HelloRequest* request,
+                        HelloReply* reply) override {
+    reply->set_message("Hello " + request->name());
+    return grpc::Status::OK;
+  }
+};
+```
+
+客户端：
+
+```cpp
+auto channel = grpc::CreateChannel("localhost:50051",
+                                   grpc::InsecureChannelCredentials());
+auto stub = Greeter::NewStub(channel);
+
+HelloRequest req;
+req.set_name("kumo");
+
+HelloReply resp;
+grpc::ClientContext ctx;
+
+auto status = stub->SayHello(&ctx, req, &resp);
+```
+
+这足以演示模型。在真实系统中，价值主要来自元数据、截止时间和流式处理。
+
+---
+
+## 8. 总结
+
+gRPC 在 Kumo 中的选择不是因为它最快。
+
+选择理由：
+
+* 提供最佳生态
+* 提供最优控制原语
+* 支持多语言
+* 与可观测性和策略层集成良好
+
+它是 **流水线控制层** 的正确工具。
+
+高 QPS 数据路径服务应使用更专业的传输和引擎。
+面向业务和集成的层应使用 gRPC。

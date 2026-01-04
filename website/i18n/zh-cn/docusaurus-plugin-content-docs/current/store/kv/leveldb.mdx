@@ -1,0 +1,131 @@
+# LevelDB
+LevelDB是Kumo采用的嵌入式键值存储系统，用于存储本地元数据、小型结构化数据及控制平面状态。
+
+本文档结合Kumo的应用场景，详细阐述LevelDB的**性能特征**、**C++ API使用方式**以及**磁盘存储布局**。
+
+---
+
+## 1. 性能特征 {#performance-characteristics}
+LevelDB针对以下场景进行了深度优化：
+
+- 高速随机读取
+- 基于日志结构合并树（Log-Structured Merge Tree，LSM）实现的高写入吞吐量
+- 按键有序遍历
+
+单节点部署（SSD级存储）下的典型性能指标：
+
+| 指标 | 典型范围 |
+|------|----------|
+| 点查询（Get） | ~5–50 微秒 |
+| 顺序扫描 | 受磁盘带宽限制 |
+| 写入吞吐量 | 50–200 MB/s |
+| 写入放大 | 中等（源于LSM树压缩操作） |
+| 读取放大 | 近期数据读取放大低，冷数据读取放大较高 |
+| 内存占用 | 主要为块缓存 + 内存表（Memtables） |
+
+:::warning 注意事项
+LevelDB的性能会随数据集规模过大而下降。
+在Kumo控制平面的使用场景下，键的数量**通常不应超过1000万**。
+超出该数量后，延迟和内存占用可能会显著增加。
+:::
+
+LevelDB专为具备可预测访问模式的**嵌入式工作负载**设计，在以下场景下表现最优：
+
+- 数据基本可容纳于本地SSD
+- 写入速率稳定
+- 避免存储大尺寸值
+
+---
+
+## 2. C++ API使用方式 {#api}
+Kumo直接调用LevelDB的原生C++ API，核心使用方式如下：
+
+### 打开数据库
+```cpp
+#include <leveldb/db.h>
+
+leveldb::DB* db;
+leveldb::Options options;
+options.create_if_missing = true;
+
+leveldb::Status status = leveldb::DB::Open(options, "/data/kumo/leveldb", &db);
+if (!status.ok()) {
+    // 处理错误
+}
+```
+
+### 写入（Set）
+```cpp
+leveldb::WriteOptions wopt;
+wopt.sync = false;  // 设为true可获得更强的持久性保障
+
+leveldb::Status s = db->Put(wopt, "key1", "value1");
+```
+
+### 读取（Get）
+```cpp
+std::string value;
+leveldb::ReadOptions ropt;
+
+leveldb::Status s = db->Get(ropt, "key1", &value);
+if (s.ok()) {
+    // 读取到value
+}
+```
+
+### 删除
+```cpp
+leveldb::Status s = db->Delete(leveldb::WriteOptions(), "key1");
+```
+
+### 关闭
+LevelDB无显式的`Close` API。
+删除`DB`对象即可关闭数据库。
+
+```cpp
+delete db;
+```
+
+执行该操作时，所有待处理的后台任务会被刷写至磁盘，同时释放所有文件句柄。
+
+---
+
+## 3. 磁盘目录结构
+典型的LevelDB目录结构如下：
+
+```
+/data/kumo/leveldb/
+├── 000003.log
+├── 000004.log
+├── 000007.sst
+├── 000010.sst
+├── CURRENT
+├── MANIFEST-000005
+├── LOCK
+└── LOG
+```
+
+| 文件         | 用途                                  |
+| ------------ | -------------------------------------- |
+| `*.log`      | 记录近期写入操作的预写日志（Write-Ahead Log，WAL） |
+| `*.sst`      | 不可变的排序字符串表（Sorted String Table，SST）文件 |
+| `MANIFEST-*` | 描述SST文件及各级数据分布的元数据文件 |
+| `CURRENT`    | 指向当前活跃manifest文件的指针文件 |
+| `LOCK`       | 用于单进程访问控制的文件锁 |
+| `LOG`        | 诊断日志文件 |
+
+LevelDB在内部将SST文件划分为**不同层级（L0–L6）**。
+压缩操作（Compaction）会将数据从高层级迁移至低层级，以此降低读取放大效应。
+
+应用程序应将该目录视为**黑盒**，严禁直接修改其中任何文件。
+
+---
+
+## 总结
+LevelDB具备以下核心特性：
+
+* 简洁的嵌入式键值存储接口
+* 可预测的读取性能
+* 紧凑且自包含的磁盘存储格式
+
+该存储系统非常适配Kumo的**本地控制平面**及元数据类工作负载。

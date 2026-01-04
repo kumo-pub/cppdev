@@ -1,2 +1,242 @@
-# grpc
+---
+title: gRPC
+---
 
+gRPC is used in Kumo primarily as a **business-facing RPC layer**.
+It is not designed to be the highest-throughput transport in the system,
+but to be the **most interoperable and controllable** one.
+
+This page explains where gRPC fits, what problems it solves,
+and why it is intentionally placed at the **pipeline control layer**.
+
+---
+
+## 1. What gRPC is really for
+
+In real production systems, the entry RPC layer is not a hot data path.
+It is a **control plane for request flows**.
+
+This layer typically handles:
+
+- Authentication and authorization
+- Request routing
+- Quota and rate limiting
+- A/B testing and gray release
+- Fan-out to multiple backend services
+- Aggregation of multiple responses
+- Timeout and retry policies
+- Metadata propagation (trace id, user id, locale, etc)
+- Observability (metrics, tracing, logging)
+
+None of these are about raw throughput.
+They are about **controlling and shaping traffic**.
+
+gRPC is designed exactly for this layer.
+
+---
+
+## 2. Why gRPC is not about extreme QPS
+
+It is common to see claims like "hundreds of thousands of QPS per node".
+In real business systems, this is mostly unrealistic.
+
+A typical service node has:
+
+- Locks and mutexes
+- Memory allocation
+- Serialization (protobuf)
+- TLS
+- Tracing
+- Logging
+- Cache access
+- Thread scheduling
+- Business logic
+
+Even very well-optimized production services usually run at:
+
+- 50% to 70% CPU utilization
+- 5k to 30k QPS per node
+
+Above that, safety margins collapse.
+Any traffic spike, failover, or hot shard can bring the system down.
+
+This is especially true for systems using:
+
+- Raft
+- Single-threaded state machines
+- Ordered logs
+- Transactional writes
+
+In these systems, QPS is often fundamentally limited by single-threaded paths.
+
+gRPC is built with these real constraints in mind.
+It prioritizes **correctness, observability, and control**, not paper benchmarks.
+
+---
+
+## 3. Where gRPC fits in Kumo
+
+In Kumo, gRPC is used at the **business and integration boundary**:
+
+```
+
+Clients
+|
+|  (gRPC)
+v
+Business API Layer
+|
+|  (fan-out, routing, policies)
+v
+High-QPS internal services (KV, search, storage, compute)
+
+````
+
+This layer:
+
+- Accepts requests from many languages
+- Talks to many downstream systems
+- Applies routing and policy
+- Controls traffic
+
+It is not the place to squeeze the last bit of QPS.
+It is the place to keep the system stable, observable, and evolvable.
+
+---
+
+## 4. Why gRPC is preferred here
+
+gRPC brings things that are extremely hard to re-implement correctly:
+
+- Deadline propagation
+- Request cancellation
+- Structured metadata
+- Standard error model
+- Streaming
+- Backpressure
+- Load balancing hooks
+- Code generation for many languages
+- Deep ecosystem support
+
+These are not optional in a real distributed system.
+They are required to build a controllable pipeline.
+
+If you do not use gRPC, you will end up rebuilding most of these.
+
+---
+
+## 5. Multi-language ecosystem
+
+The business layer is usually where:
+
+- Python
+- Java
+- Go
+- Node.js
+- C++
+- Rust
+
+all need to connect.
+
+gRPC is one of the few RPC systems with **first-class, production-grade support**
+across all major languages.
+
+This makes it ideal for:
+
+- Public APIs
+- Microservices
+- Integration with external systems
+- Tooling and automation
+
+---
+
+## 6. C++ integration model
+
+On C++, gRPC requires several components:
+
+- protobuf
+- grpc
+- transport (c-ares, TLS, etc)
+
+This can be painful to integrate manually.
+
+In Kumo, this is handled by `kmpkg`, which provides:
+
+- Prebuilt gRPC
+- Protobuf
+- TLS stack
+- Consistent versions
+
+So the complexity is centralized and standardized.
+
+---
+
+## 7. Minimal C++ example
+
+Service definition:
+
+```proto
+syntax = "proto3";
+
+service Greeter {
+  rpc SayHello (HelloRequest) returns (HelloReply);
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+}
+````
+
+Server:
+
+```cpp
+class GreeterServiceImpl final : public Greeter::Service {
+  grpc::Status SayHello(grpc::ServerContext* context,
+                        const HelloRequest* request,
+                        HelloReply* reply) override {
+    reply->set_message("Hello " + request->name());
+    return grpc::Status::OK;
+  }
+};
+```
+
+Client:
+
+```cpp
+auto channel = grpc::CreateChannel("localhost:50051",
+                                   grpc::InsecureChannelCredentials());
+auto stub = Greeter::NewStub(channel);
+
+HelloRequest req;
+req.set_name("kumo");
+
+HelloReply resp;
+grpc::ClientContext ctx;
+
+auto status = stub->SayHello(&ctx, req, &resp);
+```
+
+This is enough to demonstrate the model.
+In real systems, most of the value comes from metadata, deadlines, and streaming.
+
+---
+
+## 8. Summary
+
+gRPC in Kumo is not chosen because it is the fastest RPC.
+
+It is chosen because:
+
+* It provides the best ecosystem
+* It provides the best control primitives
+* It works across languages
+* It integrates well with observability and policy layers
+
+It is the right tool for the **pipeline control layer**.
+
+High-QPS, data-path services should use more specialized transports and engines.
+Business-facing and integration layers should use gRPC.

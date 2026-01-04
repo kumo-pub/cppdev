@@ -1,0 +1,136 @@
+## Cedar Trie
+
+- **Project:** Cedar — *Updatable Double-Array Trie in C++*
+- **Official Website:** [http://www.tkl.iis.u-tokyo.ac.jp/~ynaga/cedar/](http://www.tkl.iis.u-tokyo.ac.jp/~ynaga/cedar/)
+
+### Overview
+
+Cedar is a **C++ implementation of an updatable double-array trie** designed for **fast incremental insertions, deletions, and lookups** of English string dictionaries.
+
+* Supports **dynamic insertion and deletion** at any time, not only during build.
+* Provides **exact match and prefix search** with high cache efficiency.
+* Supports **serialization and deserialization** for persistent storage.
+
+This makes Cedar suitable for applications where the dictionary evolves over time and requires **both dynamic updates and high-performance queries**.
+
+---
+
+### Key Features
+
+* **Fully dynamic:** online insertions and deletions supported.
+* **Exact match and prefix search:** high-performance lookup for queries.
+* **Memory efficient:** compact double-array structure for large English vocabularies.
+* **Persistent storage:** serialization and deserialization supported for production use.
+* **Incremental updates:** can handle skewed and growing datasets efficiently.
+
+---
+
+### Typical Use Cases
+
+* English **keyword lookup** with frequent updates
+* **Autocomplete / prefix search** on evolving query sets
+* Dynamic dictionary access in text processing pipelines
+* Real-time search engines or indexing systems requiring insert/delete support
+
+---
+
+### Not Suitable For
+
+* Very large-scale static dictionaries where a purely static double-array trie may be slightly more memory efficient
+* Non-English or Unicode-heavy workloads (requires proper encoding handling)
+
+---
+
+### Industrial Fit
+
+| Requirement                         | Cedar Support |
+| ----------------------------------- | ------------- |
+| Online insert/delete                | ✔️            |
+| Fast prefix & exact search          | ✔️            |
+| mmap-able & serializable dictionary | ✔️            |
+| Attaching payload (bitmap / counts) | ❌             |
+
+**Conclusion:**
+Cedar Trie is suitable for **dynamic English dictionary workloads**, where **online insertions and deletions** coexist with high-performance exact match and prefix queries. It supports persistent storage and incremental updates, making it a fully dynamic trie for production systems.
+
+---
+
+### C++ Example
+
+#### Build
+
+```bash
+git clone http://www.tkl.iis.u-tokyo.ac.jp/~ynaga/cedar/
+cd cedar
+make
+```
+
+#### Construct, Insert, and Delete Keys
+
+```cpp
+#include <cedar.h>
+#include <iostream>
+#include <vector>
+
+int main() {
+    cedar::da<int> trie;
+
+    // Initial insertions
+    std::vector<std::string> keys = {"apple", "application", "banana", "band"};
+    for (size_t i = 0; i < keys.size(); ++i) {
+        trie.update(keys[i].c_str(), static_cast<int>(i));
+    }
+
+    // Dynamic insertion
+    trie.update("applet", 4);
+
+    // Dynamic deletion
+    trie.remove("banana");
+
+    // Save for persistent use
+    trie.save("cedar.dict");
+
+    return 0;
+}
+```
+
+---
+
+#### Load and Query Trie
+
+```cpp
+#include <cedar.h>
+#include <iostream>
+
+int main() {
+    cedar::da<int> trie;
+    trie.load("cedar.dict");
+
+    std::string query = "app";
+    int value;
+
+    // Exact match
+    if (trie.exactMatchSearch(query.c_str(), &value)) {
+        std::cout << "Exact match found: " << query
+                  << " -> " << value << "\n";
+    }
+
+    // Prefix search
+    cedar::da<int>::prefix_iterator it = trie.prefixBegin(query.c_str());
+    cedar::da<int>::prefix_iterator end = trie.prefixEnd();
+    for (; it != end; ++it) {
+        std::cout << "Prefix match: " << it->key()
+                  << " -> " << it->value() << "\n";
+    }
+
+    return 0;
+}
+```
+
+---
+
+### Notes
+
+* Cedar **fully supports online insertions and deletions**, not limited to build-time.
+* Exact match, prefix search, and serialization are fully supported.
+* Suitable for production systems with **dynamic English dictionaries** requiring frequent updates.

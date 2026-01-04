@@ -1,1 +1,114 @@
-# ast
+# Abstract Syntax Tree (AST)
+
+In systems that parse expressions, SQL, or domain-specific languages (DSLs), the **Abstract Syntax Tree (AST)** is a core representation that bridges parsing and execution.
+
+---
+
+## Parsing and Execution Pipeline
+
+The processing typically follows this pipeline:
+
+```
+
+Raw Input → Lexer → Parser → AST → IR / Optimizer → Execution Plan → Execution Engine
+
+```
+
+### Step-by-Step Explanation
+
+1. **Lexer (Tokenization)**  
+   - Converts raw input text into tokens: keywords, identifiers, operators, literals.  
+   - Example: 
+     ```text
+     SELECT a, b FROM tbla WHERE a > 10;
+     ```
+     → 
+     ```
+     ["SELECT", "a", ",", "b", "FROM", "tbla", "WHERE", "a", ">", "10"]
+     ```
+
+2. **Parser**  
+   - Consumes tokens and produces a **Parse Tree**, capturing the exact syntactic structure.  
+   - Handles grammar rules, operator precedence, and parentheses.  
+   - Parse trees are often verbose and include every syntactic element.
+
+3. **AST (Abstract Syntax Tree)**  
+   - Converts the parse tree into a **semantic representation**.  
+   - Abstracts away syntax details like commas or parentheses.  
+   - Organizes the program into nodes such as expressions, constants, identifiers, and statements.
+
+   #### Example AST
+   For the query:
+   ```sql
+   SELECT a, b FROM tbla WHERE a > 10;
+   ```
+
+The AST could look like:
+
+```
+SelectStmt
+├─ Columns
+│  ├─ Identifier(a)
+│  └─ Identifier(b)
+├─ Table(tbla)
+└─ Where
+   └─ Comparison
+      ├─ Identifier(a)
+      ├─ Operator(>)
+      └─ Constant(10)
+```
+
+* `Identifier(a)` and `Identifier(b)` are nodes representing column references.
+* `Constant(10)` is a literal node.
+* The AST captures **semantics** rather than raw syntax, making it suitable for optimization and code generation.
+
+4. **IR / Optimizer**
+
+* AST is transformed into an **Intermediate Representation (IR)** for optimization or execution planning.
+* Typical optimizations: constant folding, predicate pushdown, operator reordering.
+* IR represents execution-ready structures abstracted from language-specific syntax.
+
+5. **Execution Plan**
+
+* IR is converted into a **plan** for the execution engine.
+* Includes operator ordering, index selection, memory allocation, and scheduling.
+
+6. **Execution Engine**
+
+* Executes the plan to produce results.
+* May involve multi-threading, I/O scheduling, caching, or parallelism depending on the environment.
+
+---
+
+## Role of AST
+
+* AST sits at the **core of the pipeline**, connecting parsing with optimization and execution.
+* Its design influences:
+
+* **Ease of traversal and transformation**
+* **Cross-language compatibility**
+* **Performance and memory usage**
+* ASTs are defined differently across languages, but the concept remains: a tree representing the **structure and semantics** of the input.
+
+---
+
+## Performance Considerations
+
+* Complexity of AST construction depends heavily on the **grammar** and **expression depth**.
+* Backtracking grammars or deeply nested expressions can increase parsing and AST generation cost.
+* AST design should balance **semantic clarity** with **traversal efficiency**.
+
+---
+
+## Use Cases
+
+* **Expression Evaluation**: For inline computations or user-defined functions.
+* **SQL Parsing**: Forms the semantic layer for query optimization and execution.
+* **DSL Processing**: AST abstracts domain-specific semantics for interpreters or compilers.
+
+> Note: For typical business applications, users rarely interact directly with ASTs; they are mainly relevant for database engines, compilers, or expression evaluation systems.
+
+---
+
+This AST module provides the **foundation for IR generation, optimizations, and execution planning**. Different languages and ecosystems may implement ASTs differently,
+but the core role remains the same: translating syntax into a semantically meaningful, manipulable structure.

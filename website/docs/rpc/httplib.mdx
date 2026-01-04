@@ -1,2 +1,150 @@
-# httplib
+---
+title: cpp-httplib
+---
 
+cpp-httplib is a **single-header HTTP library** for C++.
+It is designed for **convenience**, not for building large-scale service ecosystems.
+
+In Kumo, it is used for **quick validation, local tools, and lightweight services**.
+
+---
+
+## 1. What cpp-httplib actually is
+
+cpp-httplib is:
+
+- Header-only
+- Zero build system
+- Zero runtime dependencies
+- Very small API surface
+- Easy to embed into any C++ project
+
+It gives you:
+
+- HTTP server
+- HTTP client
+- Basic TLS support
+- Routing
+- Request and response handling
+
+You include one header and you are done.
+
+That is its entire value.
+
+---
+
+## 2. What it is not
+
+cpp-httplib does **not** provide:
+
+- Service discovery
+- Load balancing
+- Connection pooling
+- Deadlines or cancellation
+- Streaming
+- Backpressure
+- Structured metadata
+- Authentication frameworks
+- Observability integration
+- Cross-language support
+- A production RPC ecosystem
+
+It is not a service platform.
+It is a **utility HTTP stack**.
+
+---
+
+## 3. Where it fits
+
+cpp-httplib fits in exactly these scenarios:
+
+- Local development servers
+- Debug endpoints
+- Internal admin APIs
+- One-off tools
+- Data import/export utilities
+- Temporary validation services
+- Test harnesses
+
+These are places where:
+
+- You want to start something in minutes
+- You do not want to deal with toolchains
+- You do not want to manage runtime dependencies
+- You do not need a large ecosystem
+
+---
+
+## 4. Why it is not used for core services
+
+In real production systems, HTTP endpoints quickly require:
+
+- Authentication
+- Authorization
+- Rate limiting
+- Tracing
+- Metrics
+- TLS management
+- Multi-language clients
+- Deployment automation
+
+cpp-httplib does not integrate with any of this.
+
+If you try to build a real service on top of it, you will end up re-implementing
+half of an RPC stack.
+
+That is exactly what gRPC and brpc already solve.
+
+---
+
+## 5. Typical usage pattern
+
+cpp-httplib is ideal for:
+
+- "Give me a quick HTTP endpoint so I can test this"
+- "Expose a debug API"
+- "Serve a small control or admin interface"
+- "Validate data flow before building the real service"
+
+It is a **prototype and tooling library**, not a service platform.
+
+---
+
+## 6. Minimal example
+
+```cpp
+#include "httplib.h"
+
+int main() {
+    httplib::Server svr;
+
+    svr.Get("/ping", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content("pong", "text/plain");
+    });
+
+    svr.listen("0.0.0.0", 8080);
+}
+````
+
+This is exactly what cpp-httplib is good at:
+a working HTTP service in a few lines of code.
+
+---
+
+## 7. Summary
+
+cpp-httplib is chosen when:
+
+* You need something now
+* You want minimal friction
+* You do not need an ecosystem
+* You do not want operational complexity
+
+It is not used for:
+
+* Business APIs
+* High-QPS services
+* Multi-language integration
+* Long-term service infrastructure
+
+In Kumo, cpp-httplib is a **tool**, not a **platform**.

@@ -1,0 +1,156 @@
+
+# Granite Key/Value Encapsulation and Workflow
+
+## Granite DB Initialization
+
+Granite wraps RocksDB and manages database initialization and column families (CFs) in a unified manner.
+
+**Configuration Inputs:**
+
+* Database path
+* Column family definitions
+* Options to reset existing DB or create directories
+
+**Initialization Flow:**
+
+1. **Reset (optional):** Delete old data if requested.
+2. **Directory creation (optional):** Ensure parent directories exist.
+3. **DB existence check:**
+
+* **Exists:** Open the DB and fetch existing CF handles.
+* **Does not exist:** Create a new DB and initialize all required CFs.
+4. **CF handle management:** Automatically keeps track of CF handles and listeners for monitoring or callback hooks.
+
+---
+
+## Granite Key Encapsulation
+
+Granite introduces `KeyBuilder` and `ElementValue` to standardize key construction and decoding.
+
+### ElementValue
+
+Supports multiple types:
+
+* Integer: `int8`, `int16`, `int32`, `int64`
+* String: variable length
+* Fixed string: fixed-length
+
+### KeyBuilder
+
+* Supports **prefix and suffix** separation:
+
+* **Prefix:** For RocksDB prefix seek or slice transform
+* **Suffix:** Additional key elements, can be used for secondary indices or sorting
+* Methods:
+
+* `build_key(values)` – constructs the complete key
+* `build_prefix_key(values)` – constructs prefix only
+* `build_suffix_key(values)` – constructs suffix only
+* `decode_key(key)` – parses complete key
+* `decode_prefix_key(key)` – parses prefix
+* `decode_prefix_key_with_filter(key)` – parses prefix and suffix with optional filtering
+
+### Multi-Prefix / Extensibility
+
+* `_schema.prefix()` supports multiple prefix fields
+* `_schema.suffix()` allows extensible additional fields
+* `_key_filter` can filter prefix + suffix for custom selection
+* Compatible with RocksDB **fixed prefix transform** or custom slice transforms
+* Automatically calculates fixed and variable prefix lengths (`_fixed_prefix`, `_var_fixed_prefix`)
+* Supports big-endian / little-endian conversion to maintain RocksDB prefix sort order
+
+**Advantages:**
+
+* Encapsulates key serialization/deserialization logic
+* Works seamlessly in multi-column-family and multi-prefix scenarios
+* Ensures consistency and correctness for SST ingestion and snapshot/backup workflows
+
+---
+
+## SST File Handling
+
+* Granite wraps RocksDB `SstFileWriter`:
+
+* Each SST corresponds to **a single column family**
+* Multi-column-family scenarios produce multiple SST files
+* Ingestion must respect SST generation order to maintain consistency
+* Recovery and replication:
+
+* Followers can catch up with master node snapshots
+* SST ingestion is sequential
+* Further WAL replay can continue post-ingestion
+* `KeyBuilder` ensures:
+
+* Prefix-based ordering for RocksDB
+* Suffix fields maintain complete business logic for queries
+
+---
+
+## Backup / Checkpoint
+
+Granite supports two backup methods:
+
+### 1. Snapshot (SST-based)
+
+* Generates SST per CF
+* Restoration ingests SSTs in the correct order
+* Supports incremental backup and replica catch-up
+
+### 2. Checkpoint (directory-based)
+
+* Creates a RocksDB checkpoint directory
+* Restoration simply opens the checkpoint directory
+
+**Granite Advantages:**
+
+* Automatically manages CF handles
+* Tracks SST files and ingestion order
+* Provides unified APIs for ingest, flush, compact, and transaction operations
+* Fully compatible with multi-prefix and multi-CF schemas
+
+---
+
+## Comparison with Native RocksDB
+
+| Feature                       | Native RocksDB            | Granite                                                      |
+| ----------------------------- | ------------------------- | ------------------------------------------------------------ |
+| CF initialization             | Manual                    | Automatic, including creation if missing                     |
+| Key construction              | User-managed              | `KeyBuilder` supports multi-type, multi-prefix, multi-suffix |
+| Prefix Transform              | Manual                    | Supports custom slice transform with optional filtering      |
+| SST writing                   | Manual                    | Encapsulated, with automatic multi-CF ordering               |
+| Backup / Restore              | Manual, CF order required | Automatic ingest/flush/compact/transaction APIs              |
+| Multi-prefix / Multi-CF       | Complex                   | Full support via prefix + suffix + filter                    |
+| Listener / Hooks              | Manual                    | Built-in support                                             |
+| Transaction / flush / compact | Direct DB API             | Unified Granite APIs                                         |
+
+---
+
+##  Summary
+
+Granite provides a **unified wrapper** around RocksDB to manage:
+
+* DB and CF initialization
+* Key construction and parsing with multi-type and multi-prefix support
+* SST generation and ingestion
+* Backup, checkpoint, and replica catch-up
+
+The `KeyBuilder` + `ElementValue` system ensures:
+
+* Multi-prefix scenarios are fully supported
+* Prefix-based RocksDB ordering is preserved
+* Column-family consistency is guaranteed during ingestion and recovery
+* Key filtering and extensibility are seamlessly integrated
+
+Granite abstracts away much of the repetitive low-level RocksDB logic while ensuring **high reliability, extensibility, and correctness** for production-scale workloads.
+
+---
+
+I can also create a **full workflow diagram** showing:
+
+```
+DB Init → KeyBuilder → SST → Backup/Checkpoint → Restore → Catch-up
+```
+
+with **prefix, suffix, multi-CF, and filter points** clearly marked, making it very visual for documentation or presentations.
+
+Do you want me to generate that diagram next?

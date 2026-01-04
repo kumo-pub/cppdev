@@ -1,0 +1,110 @@
+# Key-Value Storage Overview
+
+Key-Value (KV) storage is the foundation for many database and storage systems. Its choice significantly impacts performance, scalability, and operational complexity.
+
+## 1. Types of KV Storage
+
+KV stores can be roughly classified into:
+
+1. **In-memory KV stores**
+
+* Examples: `std::unordered_map`, `folly::F14`, custom hash tables.
+* Characteristics:
+
+* Extremely low latency (nanoseconds to microseconds).
+* No persistence unless combined with snapshotting or WAL.
+* No ordering guarantees unless explicitly added.
+* Use cases: caching, fast indexing, ephemeral state.
+
+2. **Embedded on-disk KV stores (LSM-tree / B+Tree based)**
+
+* Examples: RocksDB, LevelDB, LMDB.
+* Characteristics:
+
+* Persist data on disk.
+* Support large data volumes beyond RAM.
+* Provide ordered keys (prefix/range scans).
+* Support snapshots, backups, and transactions (to varying degrees).
+
+3. **Distributed KV stores**
+
+* Examples: TiKV, RocksDB+Raft, Cassandra (KV-like API).
+* Characteristics:
+
+* Scale horizontally across nodes.
+* Handle replication, failover, and consistency.
+* Often build on embedded KV engines internally.
+
+---
+
+## 2. Focused Comparison: RocksDB, LevelDB, LMDB
+
+| Feature / Engine         | RocksDB                                                  | LevelDB                                               | LMDB                                                            |
+| ------------------------ | -------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------- |
+| Storage type             | LSM-tree                                                 | LSM-tree                                              | B+Tree (memory-mapped)                                          |
+| Max DB size              | 10–100 TB+                                               | ~10 TB                                                | ~16 TB (64-bit OS)                                              |
+| Write throughput         | 50k–200k ops/sec (SSD)                                   | 30k–100k ops/sec                                      | 5k–50k ops/sec (disk-backed)                                    |
+| Read throughput          | 100k–500k point/sec                                      | 50k–200k point/sec                                    | 50k–200k point/sec                                              |
+| Read range / scan        | 200–800 MB/sec (prefix optimized)                        | 100–400 MB/sec                                        | 100–400 MB/sec                                                  |
+| Memory usage             | Configurable memtable + block cache                      | Memtable + block cache                                | Mapped entirely into address space                              |
+| Persistence & durability | WAL + SST                                                | WAL + SST                                             | Memory-mapped + sync                                            |
+| Transactions             | Single key atomic, batch writes                          | Single key atomic, batch writes                       | ACID, MVCC                                                      |
+| Column family support    | Yes                                                      | No                                                    | No                                                              |
+| Best suited for          | Large-scale, high write workloads, prefix scan, multi-CF | Small-medium DB, embedded                             | Read-heavy workloads, ACID compliance, memory-mapped scenarios  |
+| Notes                    | Heavy tunable options; suitable for hot LSM tuning       | Simpler; less configurable; limited compaction tuning | Very low read latency; writes block if file system sync is slow |
+
+---
+
+## 3. Key Operational Guidelines
+
+For production deployment, KV engines have different operational considerations:
+
+### RocksDB
+
+* **SST file management:**
+
+* RocksDB writes LSM-tree SST files per column family.
+* Frequent compaction can produce many small SSTs; excessive SSTs can hurt read performance and increase disk usage.
+* Avoid having too many column families if not necessary; prefer fewer CFs and use **key prefix** for logical separation.
+* **Backup & snapshot:**
+
+* Prefer **snapshot-based backups** for incremental replication or quick point-in-time copies.
+* Full **file-level backups** (checkpointing SSTs) should be limited to avoid high I/O load.
+* **Key design for range scan:**
+
+* Fixed-length prefix keys improve **prefix scan throughput**.
+* Consider partitioning large datasets by key range to simplify compaction and backup.
+* **I/O and memory tuning:**
+
+* Adjust **memtable size, block cache, compaction threads** to match SSD I/O capabilities.
+* Monitor SST size distribution and write amplification.
+
+### LMDB
+
+* **Single-file simplicity:**
+
+* LMDB uses a single memory-mapped file per database (or per environment).
+* Simple to manage operationally; no compaction is required.
+* **Read-heavy workload:**
+
+* Optimal for mostly-read workloads; multiple readers can access concurrently without locking.
+* **Write considerations:**
+
+* Single-writer limitation means **write bursts** can block reads if the disk sync is slow.
+* Avoid placing multiple LMDB databases in the same file if high write concurrency is expected.
+
+### General Ops Notes
+
+* For **small-scale KV usage**, LMDB is simpler and less operationally demanding.
+* For **large-scale or write-intensive workloads**, RocksDB offers higher flexibility and tunability but requires monitoring of SSTs, CFs, and compaction cycles.
+* Use snapshots and incremental backups to **limit I/O impact** and maintain consistent backups without pausing writes.
+
+---
+
+This provides a **full KV layer overview**, including storage types, engine characteristics, benchmark data, usage scenarios, and operational guidance for RocksDB and LMDB.
+
+---
+
+If you want, I can **also add a small diagram showing RocksDB SST file layout vs. LMDB single-file layout**, which makes these operational points visually clearer.
+
+Do you want me to do that?

@@ -1,0 +1,122 @@
+# Architecture
+
+## SAX 与 DOM
+
+Merak 的设计核心是 **Handler** 概念。
+
+* **SAX**：`Reader` 从流中解析 JSON 并向 `Handler` 发出事件，`Writer` 实现 `Handler` 处理事件。
+* **DOM**：`Document` 也实现 `Handler` 来构建 DOM，`Value` 提供 `Value::Accept(Handler&)` 将 DOM 转为事件并派发。
+* **设计特点**：SAX 独立于 DOM；Reader/Writer 互不依赖；Value 独立于 SAX → 可将 DOM 序列化为 JSON、XML 或其他操作。
+
+---
+
+## Utility Classes
+
+SAX 与 DOM API 都依赖三个辅助概念：`Allocator`、`Encoding` 和 `Stream`。
+
+* `Allocator`：内存分配器
+* `Encoding`：字符编码处理
+* `Stream`：输入/输出抽象
+* 继承关系如图（略）
+
+---
+
+# Value {#Value}
+
+## 数据布局 {#DataLayout}
+
+`Value` 是一个 **variant 类型**，可持有六种 JSON 数据类型，通过 `union` 和 `unsigned flags_` 实现。
+
+* **flags_**：存储 JSON 类型及附加信息，用于快速类型判断和获取类型序号
+* **数据对齐**：32/64 位架构差异，`SizeType` 定义为 `unsigned` 以节约内存
+* **短整型填充**：允许 32-bit int 直接被 64-bit 解释，无需转换
+
+### 短字符串优化 {#ShortString}
+
+* 短字符串可直接存储在 `Value` 内部（11/15 字节），减少内存拷贝，提高缓存局部性和性能
+* 存储方式：`invLength = MaxChars - length`
+
+---
+
+# Allocator {#InternalAllocator}
+
+```cpp
+concept Allocator {
+    static const bool kNeedFree;
+    void* Malloc(size_t size);
+    void* Realloc(void* originalPtr, size_t originalSize, size_t newSize);
+    static void Free(void *ptr);
+};
+```
+
+* `Malloc()` / `Realloc()` 是成员函数
+* `Free()` 是静态函数
+
+### MemoryPoolAllocator {#MemoryPoolAllocator}
+
+* 默认 DOM 分配器，只分配不释放，内部使用单链表管理内存块
+* 内存分配流程：用户 buffer → 当前 block → 新 block
+
+---
+
+# Parsing Optimization {#ParsingOptimization}
+
+### SIMD 跳过空白字符 {#SkipwhitespaceWithSIMD}
+
+* 空白字符：`space/tab/linefeed/carriage return`
+* SIMD 可一次比较 16 字符，提高解析速度
+* 支持 SSE2/SSE4.2/ARM Neon
+* **注意**：编译时启用指令集，运行时若 CPU 不支持会 crash
+
+#### 页边界问题
+
+* `_mm_loadu_si128()` 可能越界访问保护页 → 通过先逐字节处理到对齐地址解决
+
+### 局部流拷贝 {#LocalStreamCopy}
+
+* 将流对象拷贝到局部变量或寄存器可减少访问开销
+* 实现方式：`StreamLocalCopy<InputStream>`
+
+### Double 解析 {#ParsingDouble}
+
+* 默认精度：3 ULP (`StrtodNormalPrecision`)
+* 全精度：`StrtodFullPrecision()` 调用三种算法依次尝试（fast-path、DIY-FP、big-integer）
+
+---
+
+# Generation Optimization {#GenerationOptimization}
+
+### 整数 → 字符串 {#itoa}
+
+* 使用 `branchlut` 算法（纯 C++，性能接近 SSE2）
+
+### Double → 字符串 {#dtoa}
+
+* 原 `snprintf("%g")` 精度低且慢
+* Merak 使用 header-only Grisu2 算法 → 精确且尽可能短的字符串
+
+---
+
+# Parser {#Parser}
+
+## 迭代解析 {#IterativeParser}
+
+* 非递归实现的递归下降 LL(1) 解析器
+
+### 文法 {#IterativeParserGrammar}
+
+* 严格 JSON 文法，左因子化处理 `values` 和 `members`
+
+### FIRST / FOLLOW 集合
+
+* 提供完整表格，用于生成 LL(1) 解析表
+
+### 实现 {#IterativeParserImplementation}
+
+* Merak 将解析表编码为 **状态机**
+* 对 `array` / `object` 增加额外状态 → 单步生成数组/对象，减少 push/pop 操作
+* 内部栈存储数组元素和对象成员数量 → 有利于栈大小估算
+
+---
+
+总结：Merak 的架构设计强调 **性能、灵活性、低内存占用**，通过 **SAX/DOM 解耦、MemoryPoolAllocator、SIMD 加速、短字符串优化、迭代解析器** 等多项技术实现高效 JSON 解析和生成。

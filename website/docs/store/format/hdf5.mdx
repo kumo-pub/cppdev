@@ -1,0 +1,98 @@
+# HDF5 Format Overview
+
+**HDF5 (Hierarchical Data Format version 5)** is a versatile, high-performance format for storing large, complex, and heterogeneous data.
+It is widely used in scientific computing, machine learning, and large-scale analytics.
+
+---
+
+## 1. Key Characteristics
+
+**Hierarchical Structure**
+
+* HDF5 organizes data into a filesystem-like hierarchy of **groups** and **datasets**.
+* Groups are like directories; datasets are like files containing arrays or tables.
+* Supports **nested hierarchies** for complex data organization.
+
+**Multi-dimensional Arrays**
+
+* Datasets can store multi-dimensional arrays (1D, 2D, 3D, …) of numeric or string types.
+* Supports **chunking** for partial I/O, enabling efficient access to subsets of large arrays.
+
+**Metadata Support**
+
+* Attributes can be attached to groups or datasets for descriptive metadata.
+* Useful for labeling datasets, units, timestamps, or provenance information.
+
+**Compression and Storage Efficiency**
+
+* Built-in support for compression filters (gzip, szip, etc.) and data type conversion.
+* Allows very large datasets to be stored efficiently without losing accessibility.
+
+**Cross-platform and Language Support**
+
+* Native libraries available for C, C++, Python (h5py), Java, and more.
+* Files are portable across architectures.
+
+---
+
+## 2. Usage Scenarios
+
+**Scientific Computing**
+
+* Storing large simulation data (e.g., physics, climate, genomics).
+* Organizing experiments with multiple datasets and time series.
+
+**Machine Learning / AI**
+
+* Efficient storage of large feature arrays, embeddings, or training datasets.
+* Supports incremental reading and writing for high-performance pipelines.
+
+**Data Archiving**
+
+* Centralized storage of heterogeneous datasets with metadata for long-term access.
+* Useful in research institutions and data warehouses.
+
+**Partial Data Access**
+
+* Supports selective reading of chunks or slices of large datasets without loading the entire file into memory.
+
+---
+
+## 3. Integration in Kumo
+
+In Kumo Stack, HDF5 is typically used for:
+
+* Large-scale structured data storage
+* Intermediate dataset storage for batch pipelines
+* Sharing multi-dimensional arrays between different processing stages
+
+Integration considerations:
+
+* Use chunked datasets when working with very large arrays to reduce I/O overhead
+* Store metadata as attributes to simplify downstream processing
+* Consider parallel HDF5 for multi-node pipelines in HPC or cloud environments
+
+---
+
+## 4. Performance Notes
+
+**I/O Throughput**
+
+* Chunking and compression balance between read/write speed and disk footprint
+* Parallel HDF5 enables distributed read/write for cluster or cloud storage
+
+**Memory Usage**
+
+* Partial reading avoids loading entire datasets into memory
+* Efficient for multi-gigabyte or terabyte-scale files
+
+**Compatibility**
+
+* HDF5 is widely supported by scientific and ML frameworks (NumPy, PyTorch, TensorFlow, Pandas)
+
+---
+
+## 5. Useful Links
+
+* HDF5 Official Website: [https://www.hdfgroup.org/solutions/hdf5/](https://www.hdfgroup.org/solutions/hdf5/)
+* HDF5 User Guide: [https://portal.hdfgroup.org/display/HDF5/HDF5](https://portal.hdfgroup.org/display/HDF5/HDF5)

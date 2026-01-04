@@ -1,0 +1,75 @@
+# RE2 – Google Regular Expressions
+
+**Project:** [RE2 GitHub](https://github.com/google/re2)
+**Language:** C++
+
+## Overview
+
+RE2 is a **high-performance, memory-safe regex engine** developed by Google. Unlike backtracking engines such as PCRE, RE2 guarantees **linear-time execution**, making it suitable for **online and production systems**, even when processing user-provided patterns. It avoids vulnerabilities such as **ReDoS (Regular Expression Denial of Service)**.
+
+RE2 supports a **subset of PCRE syntax**, including most standard operators, character classes, and captures, but **does not support backreferences or complex lookarounds**. Its primary design goal is **safety and predictability**, not complete Perl compatibility.
+
+---
+
+## Key Features
+
+* **Linear-time execution:** All regex matching is guaranteed to be O(n) in input size.
+* **Memory safety:** Prevents excessive stack or heap usage even for complex patterns.
+* **Dynamic usage:** Patterns can be compiled at runtime and reused.
+* **Capture groups:** Supports standard capturing and named groups.
+* **Partial syntax coverage:** Supports most common patterns, but lacks backreferences and some advanced lookarounds.
+
+---
+
+## Typical Use Cases
+
+* Online systems with **user-provided regex**, such as search engines or filtering tools.
+* Large-scale text scanning, log analysis, or real-time event processing.
+* Scenarios where **performance and safety** are more critical than full Perl compatibility.
+
+---
+
+## Industrial Fit
+
+| Requirement                 | RE2 Support |
+| --------------------------- | ----------- |
+| Online, user-facing safety  | ✔️          |
+| Predictable performance     | ✔️          |
+| Dynamic pattern compilation | ✔️          |
+| Advanced Perl-only syntax   | ❌           |
+| Captures / group extraction | ✔️          |
+| Memory-safe                 | ✔️          |
+
+---
+
+### C++ Example
+
+```cpp
+#include <re2/re2.h>
+#include <iostream>
+#include <string>
+
+int main() {
+    std::string text = "User: Alice, Score: 42";
+    std::string user;
+    int score;
+
+    // Compile the regex
+    RE2 pattern("User: (\\w+), Score: (\\d+)");
+
+    // Match the text
+    if (RE2::FullMatch(text, pattern, &user, &score)) {
+        std::cout << "User: " << user << ", Score: " << score << std::endl;
+    } else {
+        std::cout << "No match found" << std::endl;
+    }
+
+    return 0;
+}
+```
+
+**Explanation:**
+
+* `RE2::FullMatch` checks whether the entire input matches the pattern.
+* Captured groups are extracted into variables (`user` and `score`).
+* RE2 guarantees **linear-time execution** regardless of input or pattern complexity.

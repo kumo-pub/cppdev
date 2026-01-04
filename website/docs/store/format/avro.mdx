@@ -1,0 +1,56 @@
+---
+title: "Apache Avro"
+---
+
+# Apache Avro
+
+**Type**: Row-based, schema-driven serialization format
+
+## Overview
+
+Apache Avro is a **row-oriented serialization system** designed for efficient data serialization, RPC, and streaming. Unlike columnar formats like Parquet or Arrow, Avro stores records row by row, making it optimal for write-heavy workloads, streaming ingestion, and row-level operations.
+
+Avro relies on **schemas** to define the structure of the data. The schema is stored **alongside the data**, allowing self-describing files and facilitating schema evolution without breaking compatibility.
+
+## Key Features
+
+- **Row-oriented storage**: Each record is written contiguously, enabling fast writes and row-level access.
+- **Schema-based**: All Avro data must adhere to a JSON-based schema. Readers can automatically handle missing fields or evolving schemas.
+- **Dynamic schema evolution**: Supports adding, removing, or changing fields with backward/forward compatibility.
+- **Data Types**: Supports primitive types (int, long, float, double, string, bytes), complex types (records, arrays, maps, unions, enums, fixed).
+- **Serialization / RPC**: Native support for binary encoding, JSON encoding, and integration with RPC frameworks.
+- **Compression**: Supports built-in codecs like `deflate` and `snappy` for on-disk storage.
+
+## Performance Considerations
+
+- **Write throughput**: Optimized for sequential writes in append-only or streaming contexts.
+- **Read performance**: Efficient for row-level access; less cache-friendly for analytical workloads compared to columnar formats.
+- **Compression**: Binary encoding reduces file size; `snappy` provides good speed/compression trade-off.
+
+### Example Benchmarks
+
+| Operation | Avro (binary) | JSON | Notes |
+|-----------|---------------|------|-------|
+| 10M rows × 10 columns write | ~1.2 s | ~15 s | Binary encoding greatly improves throughput |
+| 10M rows × 10 columns read | ~0.9 s | ~12 s | Row-oriented access favors streaming |
+
+> Benchmarks vary based on JVM/Python/C++ implementation and compression codec.
+
+## Integration & Use Cases
+
+- **Streaming ingestion**: Kafka, Flink, and other stream processing systems commonly use Avro for message serialization.
+- **Data pipelines**: Ideal for write-heavy ETL tasks where row-level atomicity matters.
+- **RPC communication**: Schema evolution makes Avro suitable for long-lived services with changing message structures.
+- **Storage**: Used for compact, self-describing binary files, especially when frequent schema evolution is expected.
+
+## Operational Notes
+
+- **Schema management**: Ensure schema registry (e.g., Confluent Schema Registry) for production pipelines.
+- **File splitting**: Avro files are splittable, which is important for parallel processing frameworks like Hadoop or Spark.
+- **Compression trade-offs**: `snappy` is fast, `deflate` reduces size more but uses more CPU.
+- **Streaming vs batch**: Avro excels in streaming; for analytical queries on large datasets, columnar formats like Parquet are preferred.
+
+## References
+
+- [Apache Avro Official](https://avro.apache.org/)
+- [Avro Binary Encoding Specification](https://avro.apache.org/docs/current/spec.html#Binary_encoding)

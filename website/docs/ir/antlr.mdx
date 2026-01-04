@@ -1,1 +1,56 @@
-# antlr
+# ANTLR
+
+ANTLR (Another Tool for Language Recognition) is a **parser generator** widely used in the **Java ecosystem**.
+It allows you to define grammars and generates parsers in multiple languages, including Java, C++, Python, and Go.
+
+---
+
+## What It Is
+
+- ANTLR generates **lexers and parsers** from grammar definitions.
+- Produces a **parse tree** or **AST**, which can then be traversed or transformed.
+- Supports **complex grammars**, including recursive and nested structures.
+
+---
+
+## When to Use
+
+- **Java-based projects** where grammar-based parsing is required.
+- **Data query engines** like **Presto**, which use ANTLR for SQL parsing.
+- Multi-language environments where the **parser generation must be portable**.
+
+> Traditional business applications in C++ may prefer PEGTL or Bison/Flex. ANTLR shines in Java-heavy ecosystems.
+
+---
+
+## Advantages
+
+- Mature ecosystem, actively maintained.
+- Supports multiple target languages.
+- Well-suited for **complex language parsing**.
+- Many **real-world applications**, particularly in SQL and DSL parsing.
+
+---
+
+## Considerations
+
+- **Integration complexity**: Moderate in Java, higher in C++/Python.
+- **Performance**: Parsing speed depends on grammar complexity; suitable for **offline or batch parsing**, not extremely high-throughput online services.
+- **Best use cases**: SQL parsing (e.g., Presto), DSL parsing, tools that benefit from generated parsers across multiple languages.
+
+---
+
+## References
+
+- [ANTLR Official](https://www.antlr.org/)
+- [Presto SQL Parser using ANTLR](https://github.com/prestodb/presto)
+
+---
+
+### Summary
+
+- **Integration complexity**: Moderate
+- **Performance**: Good for batch/offline parsing, not for extremely high QPS
+- **Typical scenarios**: SQL parsing, DSL parsing, cross-language parser generation
+
+> ANTLR is widely adopted in **Java ecosystems** and for projects that require **complex grammar handling**.

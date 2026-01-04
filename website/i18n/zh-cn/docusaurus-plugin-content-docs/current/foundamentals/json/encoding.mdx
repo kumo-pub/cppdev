@@ -1,0 +1,149 @@
+# 编码
+
+根据 [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf)：
+
+> （在引言中）JSON 文本是 Unicode 码点的序列。
+
+早期的 [RFC4627](http://www.ietf.org/rfc/rfc4627.txt) 指出：
+
+> （第 §3 节）JSON 文本必须使用 Unicode 编码。默认编码为 UTF-8。
+> （第 §6 节）JSON 可以使用 UTF-8、UTF-16 或 UTF-32 表示。当 JSON 使用 UTF-8 编写时，与 8 位兼容。当 JSON 使用 UTF-16 或 UTF-32 编写时，必须使用二进制内容传输编码。
+
+Merak 支持多种编码，并可验证 JSON 的编码，同时支持不同编码之间的转码。这些功能均在内部实现，无需依赖外部库（如 [ICU](http://site.icu-project.org/)）。
+
+[TOC]
+
+# Unicode {#Unicode}
+
+根据 [Unicode 官方网站](http://www.unicode.org/standard/translations/t-chinese.html)：
+
+> Unicode 为每个字符提供唯一编号，
+> 无论使用什么平台，
+> 无论使用什么程序，
+> 无论使用什么语言。
+
+这些唯一编号称为 **码点（code points）**，范围从 `0x0` 到 `0x10FFFF`。
+
+## Unicode 转换格式（UTF） {#UTF}
+
+存储 Unicode 码点有多种方式，称为 Unicode 转换格式（UTF）。Merak 支持最常用的 UTF 变体：
+
+* **UTF-8**：8 位可变长度编码，一个码点对应 1 到 4 个字节。
+* **UTF-16**：16 位可变长度编码，一个码点对应 1 到 2 个 16 位码元（即 2 到 4 字节）。
+* **UTF-32**：32 位固定长度编码，一个码点直接对应一个 32 位码元（即 4 字节）。
+
+对于 UTF-16 和 UTF-32，**字节序（endianness）** 非常重要。在内存中，它们通常使用主机的本机字节序存储，但在文件或网络传输中，字节序（小端/LE 或大端/BE）必须明确指定。
+
+Merak 在 `merak/json/encodings.h` 中通过结构体提供各种编码：
+
+```cpp
+namespace merak::json {
+
+template<typename CharType = char>
+struct UTF8;
+
+template<typename CharType = wchar_t>
+struct UTF16;
+
+template<typename CharType = wchar_t>
+struct UTF16LE;
+
+template<typename CharType = wchar_t>
+struct UTF16BE;
+
+template<typename CharType = unsigned>
+struct UTF32;
+
+template<typename CharType = unsigned>
+struct UTF32LE;
+
+template<typename CharType = unsigned>
+struct UTF32BE;
+
+} // namespace merak::json
+```
+
+在内存中，通常使用 `UTF8`、`UTF16` 或 `UTF32`。
+在 I/O 操作处理的文本中，可使用 `UTF8`、`UTF16LE`、`UTF16BE`、`UTF32LE` 或 `UTF32BE`。
+
+在 DOM 风格 API 中，`GenericValue<Encoding>` 和 `GenericDocument<Encoding>` 的 `Encoding` 模板参数指定 JSON 字符串在内存中的编码。因此通常使用 `UTF8`、`UTF16` 或 `UTF32`，选择取决于操作系统和应用程序使用的其他库。例如，Windows API 使用 UTF-16 表示 Unicode 字符，而大多数 Linux 发行版和应用程序偏向使用 UTF-8。
+
+声明使用 UTF-16 的 DOM 示例：
+
+```cpp
+typedef GenericDocument<UTF16<> > WDocument;
+typedef GenericValue<UTF16<> > WValue;
+```
+
+更详细示例请参见 [DOM 的 Encoding](stream.mdx) 部分。
+
+## 字符类型 {#CharacterType}
+
+如上声明所示，每种编码都有一个 `CharType` 模板参数。需要注意：实际上，每个 `CharType` 存储一个 **码元（code unit）**，而非单个字符（码点）。如前所述，UTF-8 的一个码点可能编码为 1 到 4 个码元。
+
+对于 `UTF16(LE|BE)` 和 `UTF32(LE|BE)`，`CharType` 必须至少是 2 字节和 4 字节的整数类型。
+
+C++11 引入了 `char16_t` 和 `char32_t`，可用于 `UTF16` 和 `UTF32`。
+
+## AutoUTF {#AutoUTF}
+
+上述编码在编译时是静态绑定的，也就是说，用户必须事先知道内存或流中使用的编码。然而，有些场景需要读写运行时才确定的不同编码的文件。
+
+`AutoUTF` 是为此设计的编码，根据输入或输出流动态选择合适编码。当前应与 `EncodedInputStream` 和 `EncodedOutputStream` 一起使用。
+
+## ASCII {#ASCII}
+
+尽管 JSON 标准未提及 [ASCII](http://en.wikipedia.org/wiki/ASCII)，但有些应用无法处理 UTF-8，需要写 7 位 ASCII JSON。
+由于 JSON 中的任何 Unicode 字符都可表示为 `\uXXXX` 转义序列，因此 JSON 始终可以编码为 ASCII。
+
+示例：将 UTF-8 DOM 写为 ASCII JSON：
+
+```cpp
+using namespace merak::json;
+Document d; // UTF8<>
+// ...
+StringBuffer buffer;
+Writer<StringBuffer, Document::EncodingType, ASCII<> > writer(buffer);
+d.Accept(writer);
+std::cout << buffer.GetString();
+```
+
+ASCII 可用于输入流。如果流中包含大于 127 的字节，将抛出 `kParseErrorStringInvalidEncoding` 错误。
+
+ASCII **不能**用于内存（Document 的编码或 Reader 的目标编码），因为它无法表示 Unicode 码点。
+
+# 验证与转码 {#ValidationTranscoding}
+
+Merak 在解析 JSON 时可以验证输入是否是指定编码的合法序列。启用方法：在 `parseFlags` 模板参数中添加 `kParseValidateEncodingFlag`。
+
+若输入编码与输出编码不同，`Reader` 和 `Writer` 会自动进行转码。在这种情况下，不需要 `kParseValidateEncodingFlag`——解析输入序列是必需的，非法序列默认解码失败。
+
+## 转码器 {#Transcoder}
+
+Merak 的编码功能虽然为 JSON 解析/生成设计，但用户也可用于非 JSON 字符串的转码。
+
+示例：将 UTF-8 字符串转为 UTF-16：
+
+```cpp
+#include "merak/json/encodings.h"
+
+using namespace merak::json;
+
+const char* s = "..."; // UTF-8 字符串
+StringStream source(s);
+GenericStringBuffer<UTF16<> > target;
+
+bool hasError = false;
+while (source.Peek() != '\0')
+    if (!Transcoder<UTF8<>, UTF16<> >::Transcode(source, target)) {
+        hasError = true;
+        break;
+    }
+
+if (!hasError) {
+    const wchar_t* t = target.GetString();
+    // ...
+}
+```
+
+也可使用 `AutoUTF` 及对应流在运行时动态设置源/目标编码。

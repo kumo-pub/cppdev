@@ -1,0 +1,65 @@
+# PCRE – Perl Compatible Regular Expressions
+
+- **Project:** [PCRE GitHub](https://github.com/PhilipHazel/pcre)
+- **Language:** C/C++
+
+## Overview
+
+PCRE is a **full-featured regular expression library** that implements the Perl syntax and semantics. It provides **powerful pattern matching capabilities**, including lookarounds, backreferences, and advanced capture handling.
+
+PCRE uses a **backtracking engine**, which allows flexible and expressive regex patterns but can lead to **exponential execution time** for certain pathological patterns. It is best suited for **controlled environments** where input patterns are trusted, such as batch processing or offline text analysis.
+
+## Key Features
+
+* **Full Perl syntax support:** Lookaheads, lookbehinds, backreferences, and conditional patterns.
+* **Dynamic compilation:** Regex patterns can be compiled at runtime.
+* **Capture groups:** Supports numbered and named captures.
+* **Unicode support:** Handles UTF-8, UTF-16, and other encodings.
+* **Flexible matching options:** Partial matches, global matches, and custom flags.
+
+## Typical Use Cases
+
+* Offline text processing and transformation.
+* Advanced pattern matching for **logs, documents, or corpora**.
+* Controlled batch analytics where performance guarantees are not critical.
+
+## Industrial Fit
+
+| Requirement                 | PCRE Support |
+| --------------------------- | ------------ |
+| Full Perl regex syntax      | ✔️           |
+| Dynamic pattern compilation | ✔️           |
+| Safe for untrusted input    | ❌            |
+| Predictable performance     | ❌            |
+| Capture groups              | ✔️           |
+| Unicode support             | ✔️           |
+
+## C++ Example
+
+```cpp
+#include <pcre.h>
+#include <iostream>
+#include <string>
+
+int main() {
+    const char* pattern = "User: (\\w+), Score: (\\d+)";
+    const char* subject = "User: Alice, Score: 42";
+    const char* error;
+    int erroffset;
+
+    pcre* re = pcre_compile(pattern, 0, &error, &erroffset, nullptr);
+    if (!re) return 1;
+
+    int ovector[30];
+    int rc = pcre_exec(re, nullptr, subject, strlen(subject), 0, 0, ovector, 30);
+    if (rc >= 0) {
+        std::cout.write(subject + ovector[2], ovector[3] - ovector[2]);
+        std::cout << " ";
+        std::cout.write(subject + ovector[4], ovector[5] - ovector[4]);
+        std::cout << std::endl;
+    }
+
+    pcre_free(re);
+    return 0;
+}
+```

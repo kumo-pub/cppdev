@@ -1,0 +1,102 @@
+明白了，我会严格按你的要求**逐句、逐段翻译**，保持原文顺序和内容，不增加任何解释或扩展。以下是你的 FAQ 文档中文翻译：
+
+---
+
+# 常见问题解答（FAQ）
+
+## 问：kthread 是协程吗？
+
+不是。我们通常说的协程特指 **N:1 线程库**——所有协程运行在单个系统线程内，其计算能力相当于各种事件循环库。由于协程切换不涉及系统调用（无跨线程操作），切换速度极快（100ns-200ns），并且受缓存一致性影响较小。但代价是多核利用效率低：代码必须是非阻塞的，否则所有协程都会被阻塞，对开发者要求严格。这使得协程适合编写具有确定性执行时间的 IO 服务器（例如 HTTP 服务器），在精心调优的场景下可以实现极高吞吐量。
+
+然而，大多数在线服务具有 **非确定性执行时间**，且许多检索任务是由几十个工程师协作开发的。一个慢函数就可能阻塞所有协程。事件循环也存在同样的限制：如果一个回调阻塞，整个循环就会卡住。例如，**ub**a**server**（注意字母 "a"，不是 ubserver）是百度尝试的一个异步框架，由多个并行事件循环组成。其实际性能很差：慢日志操作、Redis 访问延迟或回调中的高计算负载会导致大量待处理请求超时。因此，该框架从未流行起来。
+
+kthread 是 **M:N 线程库**——一个被阻塞的 kthread 不会影响其他 kthread。它依赖两个关键技术：
+
+1. **工作窃取调度（Work stealing scheduling）**：使 kthread 可以更快地调度到更多 CPU 核心。
+2. **Butex**：一种同步原语，使 kthread 和 pthread 可以相互等待和唤醒。
+
+协程不需要这些技术。更多线程知识可参考 [此文档](../../rpc/krpc/threading_overview.mdx)。
+
+## 问：我应该在程序中大量使用 kthread 吗？
+
+不应该。除非你需要 [在单次 RPC 调用期间并发执行某些代码](kthread_or_not.mdx)，否则应避免直接调用 kthread 函数——让 krpc 来处理这些操作更合适。
+
+## 问：kthread 如何映射到 pthread worker？
+
+一个 pthread worker 在任意时刻只运行一个 kthread。当当前 kthread 被挂起时：
+
+1. pthread worker 首先尝试从本地运行队列弹出一个待执行 kthread。
+2. 如果本地没有待执行 kthread，则随机从其他 worker 的运行队列窃取。
+3. 如果没有 kthread 可窃取，pthread worker 进入休眠，并在有新待执行 kthread 添加时被唤醒。
+
+## 问：kthread 内可以调用阻塞的 pthread 或系统函数吗？
+
+可以。只有当前 pthread worker 被阻塞，其他 pthread worker 不受影响。
+
+## 问：被阻塞的 kthread 会影响其他 kthread 吗？
+
+不会。
+
+* 如果 kthread 通过 kthread API 阻塞：它会将当前 pthread worker 让给其他 kthread。
+* 如果 kthread 通过 pthread API 或系统函数阻塞：当前 pthread worker 上的待执行 kthread 会被其他空闲 pthread worker 窃取并执行。
+
+## 问：kthread API 可以在 pthread 内调用吗？
+
+可以。
+
+* 当在 kthread 上下文调用 kthread API：影响当前 kthread。
+* 当在 pthread 上下文调用 kthread API：影响当前 pthread。
+
+使用 kthread API 的代码可以直接在 pthread 上下文运行，无需修改。
+
+## 问：大量 kthread 调用阻塞的 pthread/系统函数会影响 RPC 执行吗？
+
+会。例如，如果有 8 个 pthread worker，并且所有 8 个 kthread 调用系统 `usleep()` 函数，负责网络 I/O（发送/接收数据）的 RPC 代码会暂时无法运行。
+
+只要阻塞时间不长，这通常 **不是重大问题**——毕竟所有 worker 都在使用中，排队是唯一可行的替代方案。在 krpc 中，用户可以通过增加 worker 数量来缓解：
+
+* 服务端：设置 [ServerOptions.num_threads](../../rpc/krpc/server.mdx#number-of-worker-threads) 或 [-kthread_concurrency](http://krpc.baidu.com:8765/flags/kthread_concurrency) 参数。
+* 客户端：设置 [-kthread_concurrency](http://krpc.baidu.com:8765/flags/kthread_concurrency) 参数。
+
+有没有办法完全避免这个问题？
+
+1. **动态增加 worker 数量**：可能效果不佳。当大量 worker 被阻塞时，它们可能都在等待同一资源（例如单个互斥锁）。增加更多 worker 只会增加等待者数量。
+
+2. **分离 IO 线程和 worker 线程**：
+
+* IO 线程只处理网络 I/O（发送/接收），worker 线程执行用户逻辑。即使所有 worker 阻塞，IO 线程也不受影响。
+* 但增加额外层（IO 线程）并不能解决拥塞：如果所有 worker 被卡住，程序仍会冻结——瓶颈只是从套接字缓冲区转移到 IO 线程与 worker 线程之间的消息队列。换句话说，当 worker 阻塞时，IO 线程可能做无用功。这就是前面“不是重大问题”说法的真正含义。
+* 另一个缺点：每个请求都需要从 IO 线程切换到 worker 线程。在系统负载高时，这些切换可能无法及时调度，导致延迟尾部增加。
+
+3. **限制最大并发数**：
+
+* 如果并发处理的请求数保持在 worker 数量以下，可以完全避免“所有 worker 被阻塞”的场景。这是一种实用方案（见 [限制最大并发数](../../rpc/krpc/server.mdx#limiting-maximum-concurrency)）。
+
+4. **将被阻塞的 worker 卸载到独立线程池**：
+
+* 当被阻塞的 worker 数超过阈值（例如 8 个中 6 个）时，用户代码不再原地执行，而是分发到独立线程池。这确保即使所有用户代码阻塞，也有少量 worker 可处理 RPC I/O。
+* 目前此机制 **在 kthread 模式下未实现**，但在 [启用 pthread 模式](../../rpc/krpc/server.mdx#pthread-mode) 时可用。
+* 当用户代码完全阻塞时，这个机制是否也会执行“无用功”？可能会——但其主要目的是在极端情况下避免死锁。例如：
+
+* 所有用户代码都阻塞在 pthread mutex 上，而该 mutex 只能在 RPC 回调中解锁。如果所有 worker 都阻塞，没有线程能处理 RPC 回调，会导致程序级死锁。
+* 虽然大多数 RPC 实现都有这种潜在问题，但实际很少发生。遵循 **避免在锁定区内调用 RPC** 的最佳实践可以完全消除风险。
+
+## 问：kthread 会支持 [Channel](https://gobyexample.com/channels)（像 Go 那样）吗？
+
+不会。Channel 表示一种 **点对点关系**，而许多实际问题涉及多点。使用 Channel 的最自然方式是：
+
+* 指派一个“角色”来管理特定任务/资源。
+* 所有其他线程通过 Channel 向该角色发送指令。
+
+如果程序被划分为 N 个此类角色（每个负责自己的任务），可以有序运行。然而，使用 Channel 意味着将程序拆分成独立角色，这带来了权衡：
+
+1. **上下文切换开销**：任何操作都需要等待目标角色被调度、处理指令并响应——即便针对缓存局部性做了优化，这个开销也很大。
+2. **代码复杂**：由于业务一致性约束，资源往往绑定在一起，强制一个角色处理多个职责。角色在处理一个任务时无法执行其他任务，任务可能优先级不同。这导致代码极其复杂，频繁中断、跳转和恢复。
+
+我们通常需要的是 **有缓冲的 Channel**，它作为有序执行的队列。kthread 提供 [ExecutionQueue](execution_queue.mdx) 来实现这一功能，消除了对 Channel 的需求。
+
+---
+
+如果你同意，我可以把你之前所有 Fiber、kthread、std::future 等文档都统一整理成**严格一对一中文翻译版**，保持原文顺序和内容。
+
+你希望我直接帮你整理吗？

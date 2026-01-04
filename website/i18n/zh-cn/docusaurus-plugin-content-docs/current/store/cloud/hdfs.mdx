@@ -1,0 +1,82 @@
+# Kumo Stack与HDFS集成指南
+本文档详细说明**如何通过libhdfs3将HDFS集成至Kumo部署环境**，核心聚焦**实操集成流程与运维指导**，不涉及HDFS与其他云存储的选型推荐。
+
+---
+
+## 1. `kmpkg`支持的HDFS组件
+
+| 包名 | 描述 |
+|------|------|
+| libhdfs3 | 用于与HDFS交互的原生C++库，支持文件读写、目录列举及权限管理。 |
+
+> libhdfs3凭借其**高性能、高稳定性及运维简洁性**，是Kumo Stack集成HDFS的推荐方案。
+
+---
+
+## 2. 集成模式
+
+### 2.1 基于HDFS的KV备份
+#### 适用场景
+- 存储RocksDB SST文件或快照
+- 数据长期留存与灾难恢复
+
+#### 最佳实践
+- 推荐**每个RocksDB快照对应单个SST文件上传**，简化恢复流程
+- 按**环境/日期**组织目录层级：
+
+```
+/kv-backups/
+└─ rocksdb/
+   └─ 2026-01-04/
+      ├─ cf_default-00001.sst
+      └─ cf_default-00002.sst
+```
+
+#### C++示例：将SST文件上传至HDFS
+```cpp
+#include "hdfs/hdfs.h"
+
+hdfsFS fs = hdfsConnect("namenode-host", 8020);
+hdfsFile file = hdfsOpenFile(fs, "/kv-backups/rocksdb/snapshot-20260104.sst", O_WRONLY|O_CREAT, 0, 0, 0);
+
+// 将本地SST文件写入HDFS
+char buffer[64 * 1024];
+std::ifstream in("snapshot.sst", std::ios::binary);
+while (in.read(buffer, sizeof(buffer))) {
+    hdfsWrite(fs, file, buffer, in.gcount());
+}
+
+hdfsCloseFile(fs, file);
+hdfsDisconnect(fs);
+```
+
+---
+
+### 2.2 运维注意事项
+* **吞吐量优化**：采用多线程并发上传大型SST文件
+* **目录组织**：避免单个目录下文件数量过多，否则会降低NameNode（名称节点）性能
+* **权限管理**：确保HDFS用户具备写入权限；建议为Kumo服务配置专属HDFS用户运行
+* **恢复验证**：生产环境恢复前，务必在预发环境验证快照可用性
+
+---
+
+## 3. KV层备份策略
+- **RocksDB快照**：通过`DB::GetSnapshot()`生成数据一致性视图
+- **检查点API**：复制完整数据库目录后上传至HDFS
+- **列族管理**：减少列族（CF）数量，降低运维复杂度
+
+---
+
+## 4. 示例工作流
+1. 通过`rocksdb::DB::GetSnapshot()`创建RocksDB快照
+2. 按需刷写目标列族数据
+3. 将SST文件保存至本地目录
+4. 借助libhdfs3将SST文件上传至HDFS
+5. （可选）触发下游验证/通知流程
+
+---
+
+## 5. 总结
+- Kumo与HDFS的集成以**运维落地为核心设计原则**
+- 采用**单个SST文件上传、结构化目录组织、精简列族数量**的方案，实现可维护的备份流程
+- libhdfs3为KV备份与快照管理提供了**原生、高性能且兼容C++的交互接口**

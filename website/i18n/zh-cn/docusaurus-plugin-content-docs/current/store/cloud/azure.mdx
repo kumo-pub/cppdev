@@ -1,0 +1,134 @@
+# Kumo Stack与Azure服务集成指南
+本文档详细说明**如何将Microsoft Azure服务集成至Kumo部署环境**，核心聚焦**实操集成流程与运维指导**，不涉及云服务选型推荐。
+
+---
+
+## 1. `kmpkg`支持的Azure组件
+Kumo的包管理器`kmpkg`已集成以下Azure组件：
+
+| 包名 | 版本 | 描述 |
+|------|------|------|
+| azure-c-shared-utility | 2025-03-31 | Azure C SDK通用工具集 |
+| azure-core-cpp | 1.16.1#1 | Azure SDK核心工具集（HTTP传输、认证等） |
+| azure-core-cpp[curl] | - | 基于Libcurl的HTTP传输实现 |
+| azure-core-cpp[http] | - | 所有可用的HTTP传输实现 |
+| azure-core-cpp[winhttp] | - | 基于WinHTTP的HTTP传输实现 |
+| azure-core-amqp-cpp | 1.0.0-beta.11#2 | AMQP协议SDK（C++版） |
+| azure-core-tracing-opentelemetry-cpp | 1.0.0-beta.4#6 | Azure SDK的OpenTelemetry追踪组件 |
+| azure-data-tables-cpp | 1.0.0-beta.6#1 | Azure表格存储SDK（C++版） |
+| azure-identity-cpp | 1.13.2#1 | 认证与身份管理SDK（C++版） |
+| azure-iot-sdk-c | 2025-03-31 | 用于Azure IoT设备连接的C99 SDK |
+| azure-iot-sdk-c[use-prov-client] | - | 启用设备预配服务（DPS）的客户端支持 |
+| azure-storage-blobs-cpp | 12.15.0 | Azure Blob存储SDK（C++版） |
+| azure-storage-common-cpp | 12.11.0 | 存储服务通用工具集 |
+| azure-storage-files-datalake-cpp | 12.13.0 | Azure Data Lake文件存储SDK |
+| azure-storage-files-shares-cpp | 12.15.0 | Azure文件共享SDK |
+| azure-storage-queues-cpp | 12.5.0 | Azure队列存储SDK |
+| azure-uamqp-c | 2025-03-31 | AMQP协议库（C版） |
+| azure-uhttp-c | 2025-03-31 | HTTP传输库（C版） |
+| azure-umqtt-c | 2025-03-31 | MQTT协议库（C版） |
+| azure-kinect-sensor-sdk | 1.4.2 | 传感器SDK（跨平台Linux/Windows） |
+| azure-kinect-depth-engine | 1.4.2 | Kinect传感器深度引擎 |
+| azure-security-keyvault-* | 4.x | Key Vault SDK（含密钥、机密、证书、管理功能） |
+| azure-messaging-eventhubs-cpp | 1.0.0-beta.10#1 | 用于消息发布/消费的Event Hubs SDK |
+| azure-messaging-eventhubs-checkpointstore-blob-cpp | 1.0.0-beta.1#5 | 基于Blob存储的检查点存储组件 |
+
+> 上述库支持Kumo与Azure **Blob存储、文件存储、Event Hubs、IoT、AMQP及Key Vault** 等服务集成，为KV备份、快照存储及事件流处理提供核心构建块。
+
+---
+
+## 2. 集成模式
+
+### 2.1 Blob存储用于KV备份
+#### 适用场景
+- 备份RocksDB快照或SST文件
+- 数据长期留存与灾难恢复
+
+#### 最佳实践
+- 推荐**单个SST文件/快照目录对应一个Blob对象**，简化恢复流程
+- 启用**版本控制与软删除**，提升数据安全性
+- 超大文件（＞256 MB）采用**分片上传**（`BlockBlobClient`）
+- 按**前缀/日期**组织文件，优化吞吐量：
+
+```
+kv-backups/
+└─ rocksdb/
+   └─ 2026-01-04/
+      ├─ cf_default-00001.sst
+      └─ cf_default-00002.sst
+```
+
+#### C++示例：上传Blob对象
+```cpp
+#include <azure/storage/blobs.hpp>
+using namespace Azure::Storage::Blobs;
+
+BlobClient blobClient = BlobClient::CreateFromConnectionString(
+    "<AZURE_CONN_STRING>", "kumo-backups", "rocksdb-snapshot-20260104.sst"
+);
+
+blobClient.UploadFromFile("snapshot.sst");
+```
+
+### 2.2 Event Hubs用于变更事件流
+#### 适用场景
+- 流式传输KV变更事件，用于数据分析或触发下游操作
+- 与下游处理器或Azure Functions集成
+
+#### 依赖库
+- `azure-messaging-eventhubs-cpp`
+- `azure-messaging-eventhubs-checkpointstore-blob-cpp`（用于检查点管理）
+
+#### 最佳实践
+- 采用**批量发送**减少网络开销
+- 跟踪**偏移量/检查点**，支持故障恢复
+
+### 2.3 Key Vault用于密钥管理
+#### 适用场景
+- 存储KV备份或快照加密所需的加密密钥
+- 存储S3/Azure Blob客户端的认证凭证
+
+#### 最佳实践
+- 结合`azure-identity-cpp`与Key Vault SDK，实现**自动令牌刷新**
+- 按应用或服务分配最小权限集，遵循权限最小化原则
+
+---
+
+## 3. KV层备份策略
+- **RocksDB快照**：轻量级一致性视图，适合上传至S3或Blob存储
+- **检查点API**：生成目录完整副本，可压缩为zip包或直接上传SST文件集合
+- **运维注意事项**：
+- 减少列族数量，简化备份/恢复流程
+- 超大规模数据库推荐采用SST文件增量上传
+
+---
+
+## 4. 键设计与吞吐量优化
+- 采用**固定长度前缀键**，提升范围遍历效率
+- 超高吞吐场景需随机化前缀，避免**Blob热点**问题
+- 优化SST文件大小，与Azure Blob大区块大小（约256 MB）对齐
+
+---
+
+## 5. 运维推荐方案
+- **容器组织**：为开发、预发、生产环境分配独立容器
+- **吞吐量优化**：高并发写入场景采用前缀分片
+- **一致性考量**：Blob覆盖/删除操作具备**强一致性**（区别于S3的最终一致性），但需监控网络错误
+- **监控告警**：利用Azure SDK日志与Event Hubs指标，实现运维可视化
+- **恢复验证**：生产环境恢复前，务必在预发环境完成备份验证
+
+---
+
+## 6. 示例工作流
+1. 通过`rocksdb::DB::GetSnapshot()`创建RocksDB快照
+2. 按需刷写目标列族数据
+3. 将SST文件保存至本地目录
+4. 上传SST文件至Azure Blob存储
+5. （可选）触发**Azure Function**验证快照完整性或触发下游处理流程
+
+---
+
+## 7. 总结
+- Kumo与Azure的集成以**运维落地为核心设计原则**
+- 推荐组合：Blob存储用于KV备份、Event Hubs用于变更事件流、Key Vault用于密钥管理
+- 最佳实践：减少列族数量、使用固定前缀键、直接上传SST文件、按容器/前缀组织数据，实现可维护性与可扩展性兼具的部署方案

@@ -1,0 +1,45 @@
+# 从源代码安装
+
+## CMake
+
+`kumo` 的 `log` 模块集成在 `turbo` 中，位于 `turbo/log` 目录。
+
+[CMake](http://www.cmake.org) 可用于在各种平台上进行编译。
+在基于 GNU 的类 Unix 系统上、以 `make` 作为构建工具构建 `turbo` 的一个典型工作流程如下：
+
+1. 克隆仓库并进入源代码目录。
+
+```bash
+git clone https://github.com/kumose/turbo.git
+cd turbo
+```
+
+2. 运行 CMake 来配置构建目录。
+
+```bash
+cmake -S . -B build -G "Unix Makefiles"
+```
+
+CMake 提供了不同的生成器，并且默认会选择与当前环境最相关的那个。
+要显式指定一个生成器，使用 `cmake . -G <generator-name>` 来生成目标构建系统。
+可用的生成器可以通过 `cmake --help` 查看。
+
+3. 使用生成的文件来编译项目。
+
+```bash
+cmake --build build
+```
+
+4. 测试项目（可选）。
+
+```bash
+cmake --build build --target test
+```
+
+5. 安装已编译的文件（可选）。
+
+```bash
+cmake --build build --target install
+```
+
+在成功编译之后，将 `turbo/log` [集成](usage.mdx) 到你的项目中。

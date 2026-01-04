@@ -1,0 +1,89 @@
+# OCR格式概述
+**OCR 数据格式** 用于存储扫描文档内容，通常包含原始图像及提取的文本/标注信息。这类格式广泛应用于文档数字化、搜索索引构建及自动化处理流水线场景。
+
+---
+
+## 1. 核心特性
+
+### 图像+文本存储
+* OCR数据通常整合原始图像（TIFF、PNG、JPEG格式）与文本识别结果。
+* 文本可附带位置元数据（边界框、坐标），支持精准映射回源图像对应位置。
+
+### 结构化标注
+* 现代OCR框架通常将识别结果存储为JSON、XML或专有格式。
+* 标注内容可包含：
+- 识别文本
+- 置信度评分
+- 单词/行/页面边界框
+- 语言或字体提示信息
+
+### 分层组织
+* 文档可包含多页内容，每页又可划分多个文本区域/文本块。
+* 这种分层结构支持大规模文档中文本的高效检索与查询。
+
+---
+
+## 2. 适用场景
+
+### 文档数字化
+* 将扫描文档转换为可搜索PDF或文本档案。
+* 同时存储原始图像与提取内容，便于核验。
+
+### 搜索索引构建
+* 对OCR识别结果建立索引，实现文档管理系统的全文检索。
+* 位置数据支持检索结果的文本高亮与标注功能。
+
+### 数据提取
+* 基于OCR结果提取结构化信息（如发票、收据、表单数据）。
+* 可与自然语言处理（NLP）或实体识别流水线结合使用。
+
+### 机器学习训练
+* OCR数据集常用于训练文本检测与识别模型。
+* COCO-Text、ICDAR、PAGE XML等标注格式为行业标准。
+
+---
+
+## 3. 主流OCR数据格式
+
+| 格式 | 描述 | 官方链接/说明 |
+|------|------|---------------|
+| **PAGE XML** | 基于XML的标准格式，存储页面布局、文本及元数据 | [https://www.primaresearch.org/page/page-xml](https://www.primaresearch.org/page/page-xml) |
+| **HOCR** | 基于HTML的OCR结果格式，存储单词位置与置信度 | [https://github.com/tmbdev/hocr-spec](https://github.com/tmbdev/hocr-spec) |
+| **ALTO XML** | 用于存储OCR结果的XML格式，广泛应用于图书馆与档案管理领域 | [https://www.loc.gov/standards/alto/](https://www.loc.gov/standards/alto/) |
+| **JSON** | 自定义或框架专属的JSON标注格式 | 例如Tesseract输出、Google Vision OCR API返回格式 |
+
+---
+
+## 4. 在Kumo中的集成
+在Kumo Stack中，OCR数据格式通常用于：
+* 扫描文档的存储与索引构建，支持检索功能
+* 实现检索结果中的文本位置高亮
+* 为下游流水线（NLP、分类、实体提取）提供数据输入
+
+集成注意事项：
+* 选择与所用OCR引擎（Tesseract、Google Vision、AWS Textract等）兼容的格式
+* 维护原始图像与提取文本的映射关系
+* 大规模文档档案需考虑压缩与存储方案（如压缩包形式存储图像+JSON/XML标注）
+
+---
+
+## 5. 性能说明
+
+### I/O效率
+* 文本与图像分离存储，可提升检索与索引构建速度
+* 大型图像档案建议使用块存储或云对象存储
+
+### 数据量考量
+* OCR输出数据量通常远小于原始图像
+* 可使用二进制XML或压缩JSON格式，降低磁盘占用
+
+### 并行处理
+* 多页文档或大规模文档集可按页面/区域并行处理
+
+---
+
+## 6. 参考链接
+* PAGE XML: [https://www.primaresearch.org/page/page-xml](https://www.primaresearch.org/page/page-xml)
+* HOCR规范: [https://github.com/tmbdev/hocr-spec](https://github.com/tmbdev/hocr-spec)
+* ALTO XML: [https://www.loc.gov/standards/alto/](https://www.loc.gov/standards/alto/)
+* Tesseract OCR: [https://tesseract-ocr.github.io/](https://tesseract-ocr.github.io/)

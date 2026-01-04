@@ -1,0 +1,88 @@
+# NumPy Format Overview (`.npy` / `.npz`)
+
+**NumPy file formats** are lightweight, efficient storage formats for arrays in Python.
+They are optimized for numerical computing and commonly used in ML pipelines for intermediate dataset storage or model data serialization.
+
+---
+
+## 1. Key Characteristics
+
+**`.npy` Format**
+
+* Stores a **single NumPy array** to disk with metadata about shape, dtype, and endianness.
+* Binary format for fast read/write.
+* Simple and deterministic layout, making it lightweight and portable.
+
+**`.npz` Format**
+
+* A **zip archive of multiple `.npy` arrays**.
+* Each array is stored as a separate `.npy` file within the archive.
+* Useful for grouping related arrays, e.g., features and labels for ML datasets.
+
+**Portability**
+
+* `.npy` files can be read across Python versions and platforms.
+* Supports multi-dimensional arrays and complex dtypes (structured arrays, records).
+
+**Fast I/O**
+
+* Designed for efficient memory mapping (`np.load(..., mmap_mode='r')`) to handle large arrays without loading entire data into RAM.
+* Minimal overhead compared to text-based formats like CSV.
+
+---
+
+## 2. Usage Scenarios
+
+**Intermediate Storage in ML Pipelines**
+
+* Storing preprocessed features or embeddings before model training.
+* Lightweight alternative to HDF5 when hierarchical structure is unnecessary.
+
+**Model Input/Output**
+
+* Save datasets and predictions in `.npy` or `.npz` for reproducibility.
+* Quick loading for training/evaluation loops.
+
+**Data Exchange**
+
+* Simple format for sharing arrays between Python scripts or small-scale experiments.
+
+---
+
+## 3. Integration in Kumo
+
+* `.npy`/`.npz` files are suitable for **fast, local, or temporary storage** of numeric arrays.
+* Best used for **single-node pipelines** or stages where hierarchical storage (like HDF5) is unnecessary.
+* Memory-mapped arrays are recommended for **large datasets** to reduce memory footprint.
+
+Integration considerations:
+
+* Avoid `.npz` for extremely large datasets; unzipping can be slow.
+* Use `.npy` for individual arrays that need **frequent random access**.
+* Keep file naming conventions consistent for automatic pipeline discovery.
+
+---
+
+## 4. Performance Notes
+
+**I/O Throughput**
+
+* Binary format enables near-native read/write speeds.
+* Memory mapping avoids memory copy for very large arrays.
+
+**Memory Usage**
+
+* `.npy` arrays can be loaded fully or via mmap, allowing flexible memory management.
+* Minimal metadata overhead (shape, dtype, endianness).
+
+**Compatibility**
+
+* Works natively with NumPy, SciPy, and PyTorch (`torch.from_numpy`)
+* Supported in Python scientific ecosystem; easy conversion to HDF5 or other formats if needed
+
+---
+
+## 5. Useful Links
+
+* NumPy `.npy`/`.npz` Format Documentation: [https://numpy.org/doc/stable/reference/generated/numpy.save.html](https://numpy.org/doc/stable/reference/generated/numpy.save.html)
+* NumPy Official Website: [https://numpy.org/](https://numpy.org/)

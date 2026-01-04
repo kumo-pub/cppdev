@@ -1,0 +1,63 @@
+---
+title: "Apache Arrow / Feather"
+---
+
+# Apache Arrow / Feather
+
+**Type**: In-memory columnar format / file interchange format
+
+## Overview
+
+Apache Arrow is a cross-language in-memory columnar data format designed for high-performance analytics and zero-copy interoperability between systems. Arrow defines both a memory layout and a lightweight file format (Feather) for disk-based storage and exchange.
+
+Arrow is **columnar**, which means that each column is stored contiguously in memory, allowing:
+
+- Vectorized computation on column batches.
+- Cache-friendly access patterns for CPUs and SIMD instructions.
+- Efficient compression and encoding.
+
+Arrow also provides **zero-copy access**, so data can be shared across processes or languages (C++, Python, Java, Rust, etc.) without serialization/deserialization overhead.
+
+## Key Features
+
+- **Memory Layout**: Arrow memory layout is standardized, aligned, and supports optional null bitmaps per column for missing values.
+- **Columnar Storage**: Each column is stored in contiguous memory; columns can be accessed independently.
+- **Data Types**: Supports primitive types (int, float), variable-length types (strings, binary), timestamps, decimals, and nested types (structs, lists, maps).
+- **Feather File**: Lightweight disk format for persistent storage and cross-language data exchange.
+- **Batch Oriented**: RecordBatches allow grouping multiple rows in a columnar layout, optimizing CPU and IO throughput.
+- **Cross-language**: APIs exist for C++, Python, Java, R, Go, Rust.
+
+## Performance Considerations
+
+- **Zero-copy reads**: Avoids memory copy when moving data between processes or languages.
+- **Vectorized processing**: Enables SIMD acceleration, especially for numerical computations.
+- **Compression**: Arrow supports optional compression (LZ4, ZSTD) on disk/file formats.
+- **IO throughput**: Suitable for high-throughput analytics workloads; Feather files are typically smaller and faster to read/write than row-based formats like CSV.
+
+### Example Benchmarks
+
+| Operation | Arrow / Feather (Python) | CSV | Notes |
+|-----------|--------------------------|-----|-------|
+| 10M rows × 10 columns read | ~0.4 s | ~4 s | Columnar format enables 10× faster read |
+| 10M rows × 10 columns write | ~0.5 s | ~4.5 s | Feather is lightweight, minimal serialization overhead |
+
+> Actual numbers depend on hardware, compression, and language bindings.
+
+## Integration & Use Cases
+
+- **In-memory analytics pipelines**: Arrow buffers allow efficient computation without copy overhead.
+- **ETL / Data interchange**: Feather files are fast for cross-language sharing.
+- **Machine Learning pipelines**: Arrow arrays feed directly into vectorized ML computations.
+- **Database engines**: Many modern engines (e.g., Velox, DuckDB) use Arrow as the internal columnar representation.
+
+## Operational Notes
+
+- **Memory management**: Arrow arrays can be large; ensure process memory is sufficient.
+- **Thread safety**: Reading is generally thread-safe; writing/updating requires care.
+- **Disk persistence**: Feather files are portable, but for large-scale datasets consider partitioning or chunking to avoid memory pressure.
+- **Compression trade-offs**: Higher compression reduces disk IO but increases CPU overhead.
+
+## References
+
+- [Apache Arrow Official](https://arrow.apache.org/)
+- [Feather File Format](https://arrow.apache.org/docs/format/Feather.html)

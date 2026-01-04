@@ -1,0 +1,73 @@
+# DiskANN (Disk-based Approximate Nearest Neighbor) Overview
+
+- **Repository:** [https://github.com/microsoft/DiskANN](https://github.com/microsoft/DiskANN)
+- **Language:** C++ (Python bindings available)
+
+## Purpose & Use Cases
+DiskANN is a **CPU-only, disk-optimized vector similarity search library** designed for ultra-large-scale (billion/trillion-level) high-dimensional vector datasets where in-memory storage is infeasible. Its core advantage is minimal RAM usage (1–5% of total vector size) via disk-backed graph indexing, focusing on read-heavy, static/low-churn scenarios rather than real-time dynamic updates or high-speed query performance. It is suitable for:
+* Approximate nearest neighbor (ANN) search over 1B+ high-dimensional vectors (100–10000 dimensions).
+* Scenarios with strict RAM constraints (e.g., trillion-scale embedding libraries that cannot fit in memory).
+* Offline batch indexing and online disk-backed query (no need to load full datasets into RAM).
+
+Typical applications include:
+* Web-scale semantic search (text/image embedding retrieval with petabyte-scale datasets).
+* Enterprise recommendation systems (cold user/item embedding libraries with 1B+ entries).
+* Scientific computing (high-dimensional astronomical/genomic data similarity search).
+
+## Algorithms Supported
+DiskANN exclusively implements disk-aware graph-based indexes optimized for CPU/disk I/O, with no hybrid or accelerated variants:
+
+| Algorithm               | Key Characteristics                                                                 | Use Case                                  |
+|-------------------------|-------------------------------------------------------------------------------------|-------------------------------------------|
+| `StaticDiskANN`         | Disk-backed HNSW variant for static datasets – minimal RAM usage, read-optimized.   | 1B+ static vectors (no updates) – DiskANN’s core scenario. |
+| `DynamicDiskANN`        | Incremental disk-backed index supporting low-frequency batch insertion/deletion.    | Large-scale datasets with hourly/daily batch updates. |
+| `PQ-DiskANN`            | Product Quantization + DiskANN – further reduces disk/RAM usage (minor recall loss). | Trillion-scale vectors with extreme memory constraints. |
+| Brute-force             | Exact disk-based search (baseline) – no approximation, slow but high recall.        | Small disk-resident datasets (≤100M vectors). |
+
+## Core Technical Specifications
+### 1. Supported Metric Spaces
+DiskANN supports a narrow set of metric spaces for numerical vectors (no native non-metric support):
+
+| Metric Type       | Full Name                          | Supported Indexes               | Use Case                                  |
+|-------------------|------------------------------------|---------------------------------|-------------------------------------------|
+| L2                | Euclidean Distance                 | All indexes                     | General numerical vectors (image/video embeddings). |
+| Cosine            | Cosine Similarity (normalized L2)  | All indexes (via pre-normalization) | Text embeddings (BERT/LLM embeddings). |
+| Inner Product (IP)| Dot Product                        | All indexes (via normalization)  | Normalized vector similarity (equivalent to cosine). |
+
+> Note: Non-metric spaces (Jaccard/Hamming/L1/L∞) are not supported, and custom preprocessing for these spaces is unmaintained and not production-grade.
+
+### 2. Supported Data Types
+DiskANN is optimized for 32-bit floating-point vectors, with limited support for low-precision integer types via quantization:
+
+| Data Type       | Precision | C++ Type          | Python Binding Mapping | Support Status                          | Use Case                                  |
+|-----------------|-----------|-------------------|------------------------|-----------------------------------------|-------------------------------------------|
+| Float32         | 32-bit    | `float`           | `numpy.float32`        | Fully supported (optimal performance)   | Default – DiskANN’s core optimized type. |
+| Float64 (Double)| 64-bit    | `double`          | `numpy.float64`        | Partial (CPU-only, 2–3x slower)         | High-precision scientific computing only. |
+| Int8/UInt8      | 8-bit     | `int8_t`/`uint8_t`| `numpy.int8`/`numpy.uint8` | Partial (via scalar quantization)      | Edge/disk-constrained environments (4x memory reduction). |
+| Float16 (FP16)  | 16-bit    | -                 | `numpy.float16`        | Not supported                            | Manual conversion to Float32 provides no memory/performance benefits. |
+| Binary          | Bit-level | `uint8_t` (packed)| `numpy.uint8` (bitpacked)| Not supported                            | No native handling for Hamming distance. |
+
+### 3. Dynamic Data Operations (Insert/Delete/Modify)
+DiskANN’s dynamic capabilities are batch-oriented and non-real-time, with no support for high-frequency updates:
+
+| Operation               | Support Level                                                                 | Constraints                                                                 |
+|-------------------------|--------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| Incremental Insertion   | Partial (batch-only, DynamicDiskANN)                                           | - Batch insertion only (10k+ vectors per batch, latency ~100ms/batch);<br/>- Single-vector insertion latency: ~10ms/vector (too slow for real-time);<br/>- Max sustainable QPS: ~100 (CPU-only). |
+| Real-Time Deletion      | Minimal (soft delete only)                                                     | - "Soft delete" (mark IDs as invalid, filter post-query);<br/>- Physical deletion requires partial index rebuild (hourly/daily batch);<br/>- No memory bloat for up to 30% deleted vectors. |
+| Vector Modification     | Indirect (delete + reinsert)                                                   | Inherits deletion/insertion latency (batch-only, no real-time support).     |
+
+## Characteristics
+| Feature             | Description                                                                                   |
+|---------------------|-----------------------------------------------------------------------------------------------|
+| Incremental Updates | Batch-only insertion (DynamicDiskANN); soft deletion only; no real-time single-vector support. |
+| Query Speed         | CPU/disk-backed: 3–15ms/query (1B 768-dim vectors) – 2–4x faster than disk-based FAISS IVF-PQ. |
+| Index Type          | Disk-backed graph-based HNSW (static/dynamic); quantization-enhanced variants (PQ-DiskANN).    |
+| Scalability         | Handles trillion-scale vectors (disk-backed); RAM usage = 0.5–5% of total vector size (core advantage). |
+| Language Bindings   | C++ (full feature set), Python (core features only – no DynamicDiskANN full support).          |
+| Non-Metric Support  | No native support (requires custom preprocessing).                                            |
+
+## Notes
+* DiskANN’s core value is ultra-low RAM usage for billion/trillion-scale static vectors – it is not optimized for speed (FAISS HNSW/GPU is faster for in-memory datasets `<1B` vectors).
+* DynamicDiskANN is designed for low-frequency batch updates (hourly/daily) – avoid using it for real-time use cases (e.g., sub-second user behavior embedding insertion).
+* Limitations: No distributed multi-node support (single-node disk-backed only); Python bindings lack full DynamicDiskANN functionality; no non-metric space support.
+* Best Practices: Use StaticDiskANN for 1B+ static vectors (low RAM footprint); pair with in-memory FAISS HNSW for hot data (`<100M` vectors) to balance scale and query speed.

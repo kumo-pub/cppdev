@@ -1,0 +1,53 @@
+# 系统监控（System Monitoring）
+
+`tally` 提供系统指标的监控接口，这些接口在文件中定义：
+
+```cpp
+<tally/sigar.h>
+```
+
+## 核心功能与特性
+
+Sigar 通过统一 API 抽象了不同操作系统之间的底层差异，提供一致的指标采集能力。例如，它允许在 Windows 和 Linux 平台上使用相同方法获取进程列表或实时 CPU 负载。
+
+其数据采集范围包括但不限于：CPU 核心数及利用率、物理和虚拟内存使用情况、磁盘分区读写速率、网络接口流量统计等。这种设计简化了开发者在多平台适配时的复杂性。
+
+Sigar（System Information Gatherer and Reporter）是一款跨平台的系统指标组件，主要用于采集操作系统的关键性能数据。它能够高效获取 CPU、内存、磁盘和网络等资源的使用信息，适用于运维监控、安全审计和学术研究等场景。
+
+## 默认监控指标
+
+导出的系统监控指标定义在文件中：
+
+```cpp
+<tally/sigar_metric.h>
+```
+
+导出指标如下表所示：
+
+| 指标类型                 | 变量名             | 描述                |
+| :------------------- | :-------------- | :---------------- |
+| `FuncGauge<int64_t>` | mem_ram         | 当前系统 RAM          |
+| `FuncGauge<int64_t>` | mem_total       | 系统总内存             |
+| `FuncGauge<int64_t>` | mem_used        | 当前系统内存使用量         |
+| `FuncGauge<int64_t>` | mem_free        | 当前系统空闲内存          |
+| `FuncGauge<int64_t>` | mem_actual_used | 实际当前系统内存使用量       |
+| `FuncGauge<int64_t>` | mem_actual_free | 实际当前系统空闲内存        |
+| `FuncGauge<int64_t>` | swap_total      | 交换分区总大小           |
+| `FuncGauge<int64_t>` | swap_used       | 交换分区使用量           |
+| `FuncGauge<int64_t>` | swap_free       | 交换分区空闲空间          |
+| `FuncGauge<int64_t>` | cpu_user        | CPU 用户态时间         |
+| `FuncGauge<int64_t>` | cpu_sys         | CPU 系统态时间         |
+| `FuncGauge<int64_t>` | cpu_nice        | CPU nice 时间       |
+| `FuncGauge<int64_t>` | cpu_idle        | CPU 空闲时间          |
+| `FuncGauge<int64_t>` | cpu_wait        | CPU 等待时间          |
+| `FuncGauge<int64_t>` | cpu_irq         | CPU IRQ 时间        |
+| `FuncGauge<int64_t>` | cpu_soft_irq    | CPU 软件 IRQ 时间     |
+| `FuncGauge<int64_t>` | cpu_stolen      | CPU 被偷取时间         |
+| `FuncGauge<int64_t>` | cpu_total       | CPU 总时间           |
+| `FuncGauge<double>`  | uptime          | 系统运行时间            |
+| `FuncGauge<double>`  | loadavg_1m      | 系统 1 分钟负载平均值      |
+| `FuncGauge<double>`  | loadavg_5m      | 系统 5 分钟负载平均值      |
+| `FuncGauge<double>`  | loadavg_15m     | 系统 15 分钟负载平均值     |
+| `FuncGauge<double>`  | disk_io_read    | 磁盘 IO 读取吞吐量       |
+| `FuncGauge<double>`  | disk_io_write   | 磁盘 IO 写入吞吐量       |
+| `FuncGauge<double>`  | disk_io_total   | 磁盘 IO 总吞吐量（读 + 写） |

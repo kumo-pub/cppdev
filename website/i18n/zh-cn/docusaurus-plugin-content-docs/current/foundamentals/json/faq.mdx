@@ -1,0 +1,251 @@
+# 常见问题解答
+
+[TOC]
+
+## 通用问题
+
+1. **什么是 Merak？**
+Merak 是一个用于解析和生成 JSON 的 C++ 库。完整功能列表请参见 [features](features.mdx)。
+
+2. **为什么叫 Merak？**
+它的设计灵感来自 [RapidXML](http://rapidxml.sourceforge.net/)，一个高性能的 XML DOM 解析器。
+
+3. **Merak 和 RapidXML 类似吗？**
+Merak 借鉴了 RapidXML 的一些设计理念，例如 in situ 解析和 header-only 库，但它们的 API 完全不同。此外，Merak 提供许多 RapidXML 没有的功能。
+
+4. **Merak 是免费的吗？**
+是的，Merak 在 MIT 许可证下发布，可用于商业软件。详情请见 [license.txt](https://github.com/kumose/merak/blob/master/license.txt)。
+
+5. **Merak 小吗？依赖有哪些？**
+是的。在 Windows 上，一个解析 JSON 并打印统计信息的可执行文件小于 30KB。Merak 仅依赖 C++ 标准库。
+
+6. **如何安装 Merak？**
+请参见 [安装章节](overview.mdx#installation)。
+
+7. **Merak 可以在我的平台上运行吗？**
+社区已在多种操作系统/编译器/CPU 架构组合上测试 Merak。但不能保证在特定平台上一定可用——建议直接编译并运行单元测试验证。
+
+8. **Merak 支持 C++03 吗？C++11 呢？**
+Merak 最初实现为 C++03，后添加了可选的 C++11 特性支持（如 move 构造函数、`noexcept`）。符合 C++03 或 C++11 标准的编译器都应兼容。
+
+9. **Merak 在实际应用中使用吗？**
+是的。它已在前端和后端生产环境中部署。一位社区成员报告，Merak 在其系统中每天解析 5000 万个 JSON 文档。
+
+10. **Merak 如何测试？**
+Merak 包含完整的单元测试套件。Linux 使用 [Travis](https://travis-ci.org/Tencent/merak/json/)，Windows 使用 [AppVeyor](https://ci.appveyor.com/project/Tencent/merak/json/)，对所有更改编译并运行测试。Linux 下还使用 Valgrind 检测内存泄漏。
+
+11. **Merak 有完整文档吗？**
+有，包括用户手册和 API 文档。
+
+12. **有没有替代库？**
+有很多替代库。例如，[nativejson-benchmark](https://github.com/miloyip/nativejson-benchmark) 列出了多种开源 C/C++ JSON 库，[json.org](http://www.json.org/) 也提供了全面列表。
+
+---
+
+## JSON
+
+1. **什么是 JSON？**
+JSON（JavaScript Object Notation）是一种轻量级数据交换格式，使用可读文本表示。详细信息请参见 [RFC7159](http://www.ietf.org/rfc/rfc7159.txt) 和 [ECMA-404](http://www.ecma-international.org/publications/standards/Ecma-404.htm)。
+
+2. **JSON 的常见用途有哪些？**
+JSON 广泛用于 Web 应用传输结构化数据，也可作为数据持久化的文件格式。
+
+3. **Merak 遵循 JSON 标准吗？**
+遵循。Merak 完全符合 [RFC7159](http://www.ietf.org/rfc/rfc7159.txt) 和 [ECMA-404](http://www.ecma-international.org/publications/standards/Ecma-404.htm)，可处理 JSON 字符串中的边界情况，如 null 字符和 UTF-16 代理对。
+
+4. **Merak 支持宽松语法吗？**
+目前不支持。Merak 仅支持严格标准语法。宽松语法讨论请参见 [issue #36](https://github.com/kumose/merak/issues/36)。
+
+---
+
+## DOM 与 SAX
+
+1. **什么是 DOM 风格 API？**
+DOM（文档对象模型）是在内存中表示 JSON 的方法，可用于查询和修改 JSON 数据。
+
+2. **什么是 SAX 风格 API？**
+SAX 是事件驱动的 JSON 解析与生成 API。
+
+3. **应该使用 DOM 还是 SAX？**
+DOM 易于查询和修改；SAX 极快且内存占用低，但使用难度较高。
+
+4. **什么是 in situ 解析？**
+in situ 解析直接将 JSON 字符串解码到输入缓冲区，可减少内存使用并提高性能，但会修改原始 JSON。详情请参见 [In Situ Parsing](dom.mdx)。
+
+5. **解析错误何时发生？**
+当输入 JSON 语法无效、值无法表示（如数字过大），或解析器的 handler 中断解析时，会发生解析错误。详见 [Parse Errors](dom.mdx)。
+
+6. **可获取哪些错误信息？**
+错误信息存储在 `ParseResult` 中，包括错误码和偏移量（从 JSON 开始到错误位置的字符数）。错误码可转换为可读信息。
+
+7. **为什么不直接用 `double` 表示 JSON 数字？**
+某些应用需 64 位有符号/无符号整数，无法安全转换为 `double`。解析器会检查 JSON 数字能否安全转换为各种整数类型和 `double`。
+
+8. **如何清空并最小化 `document` 或 `value` 的容量？**
+调用 `SetXXX()` 方法，会调用析构函数并重建空 Object 或 Array：
+
+```cpp
+Document d;
+...
+d.SetObject();  // 清空并最小化
+   ```
+
+或参考 [C++ swap with temporary idiom](https://en.wikibooks.org/wiki/More_C%2B%2B_Idioms/Clear-and-minimize)：
+
+```cpp
+Value(kObjectType).Swap(d);
+   ```
+
+也可使用稍长方式：
+
+```cpp
+d.Swap(Value(kObjectType).Move());
+   ```
+
+9. **如何将一个 `document` 节点插入另一个 `document`？**
+示例：两个文档（DOM）：
+
+```cpp
+Document person;
+person.Parse("{\"person\":{\"name\":{\"first\":\"Adam\",\"last\":\"Thomas\"}}}");
+
+Document address;
+address.Parse("{\"address\":{\"city\":\"Moscow\",\"street\":\"Quiet\"}}");
+   ```
+
+想将 `address` 整体插入 `person`：
+
+```json
+{ "person": {
+   "name": { "first": "Adam", "last": "Thomas" },
+   "address": { "city": "Moscow", "street": "Quiet" }
+   }
+}
+   ```
+
+插入节点时需注意 `document` 和 `value` 生命周期，并正确使用 allocator。
+
+简单方法：使用 `person` 的 allocator 初始化 `address`：
+
+```cpp
+Document address(&person.GetAllocator());
+...
+person["person"].AddMember("address", address["address"], person.GetAllocator());
+   ```
+
+或使用迭代器：
+
+```cpp
+auto addressRoot = address.MemberBegin();
+person["person"].AddMember(addressRoot->name, addressRoot->value, person.GetAllocator());
+   ```
+
+也可深拷贝 address：
+
+```cpp
+Value addressValue = Value(address["address"], person.GetAllocator());
+person["person"].AddMember("address", addressValue, person.GetAllocator());
+   ```
+
+---
+
+## Document/Value (DOM)
+
+1. **什么是移动语义？为什么使用？**
+`Value` 使用移动语义而非拷贝语义，即赋值时将源对象的所有权转移给目标对象。移动比拷贝快，这设计迫使用户注意拷贝开销。
+
+2. **如何拷贝一个值？**
+提供两种 API：带 allocator 的构造函数和 `CopyFrom()`。详见 [Deep Copy a Value](tutorial.mdx)。
+
+3. **为什么需要提供字符串长度？**
+C 风格字符串以 null 结尾，`strlen()` 需线性计算长度，若用户已知长度，调用 `strlen()` 会增加不必要开销。此外，Merak 可处理包含 `\u0000` 的字符串，若包含 null，`strlen()` 无法返回真实长度，因此必须手动提供长度。
+
+4. **为什么许多 DOM API 需要 allocator 参数？**
+这些 API 是 `Value` 的成员函数，为节省内存，没有在每个 `Value` 中存储 allocator 指针。
+
+5. **是否支持不同数值类型间转换？**
+调用如 `GetInt()`、`GetUint()` 等 API 时可能发生转换。整数间转换仅在安全时进行，否则触发断言。64 位整数转 `double` 可能精度丢失。带小数的数或大于 64 位整数只能通过 `GetDouble()` 获取。
+
+---
+
+## Reader/Writer (SAX)
+
+1. **为什么不直接用 `printf` 输出 JSON？为什么需要 `Writer`？**
+`Writer` 确保输出 JSON 语法正确。非法 SAX 调用（如 `StartObject()` 与 `EndArray()` 不匹配）会触发断言。`Writer` 会转义字符串（如 `\n`），且数字输出经过优化算法转换，比 `printf()` 和 `iostream` 更快且更安全，避免因本地环境影响数字格式。
+
+2. **可以暂停解析并稍后恢复吗？**
+当前版本不直接支持。若执行环境支持多线程，可在独立线程解析 JSON，通过阻塞输入流实现暂停。
+
+---
+
+## Unicode
+
+1. **支持哪些格式？**
+支持 UTF-8、UTF-16（大/小端）、UTF-32（大/小端）以及 ASCII。
+
+2. **可以验证编码合法性吗？**
+可以。向 `Parse()` 传入 `kParseValidateEncodingFlag` 即可。输入流编码无效时触发 `kParseErrorStringInvalidEncoding` 错误。
+
+3. **什么是代理对？Merak 支持吗？**
+JSON 使用 UTF-16 转义 Unicode 字符（如 `\u5927` 表示 “大”）。超出 BMP（基本多文种平面）的字符需使用两个 16 位码元，即 UTF-16 代理对。例如表情 U+1F602 在 JSON 中可表示为 `\uD83D\uDE02`。Merak 完全支持解析和生成 UTF-16 代理对。
+
+4. **能处理 JSON 字符串中的 `\u0000` 吗？**
+可以。Merak 完全支持 null 字符，但用户需使用 `GetStringLength()` 等 API 获取真实长度。
+
+5. **所有非 ASCII 字符能输出为 `\uxxxx` 吗？**
+可以。在 `Writer` 中使用 `ASCII<>` 作为输出编码参数即可强制转义。
+
+---
+
+## 流 (Streams)
+
+1. **JSON 文件很大，是否要全部读入内存？**
+可使用 `FileReadStream` 分块读取，但 in situ 解析需将整个文件读入内存。
+
+2. **可以解析网络流 JSON 吗？**
+可以。用户可基于 `FileReadStream` 实现自定义流。
+
+3. **不确定 JSON 编码时怎么办？**
+可使用 `AutoUTFInputStream` 自动检测输入流编码，但会有性能开销。
+
+4. **什么是 BOM？Merak 如何处理？**
+[字节顺序标记 (BOM)](http://en.wikipedia.org/wiki/Byte_order_mark) 有时出现在文件/流开头以标识 UTF 编码类型。
+`EncodedInputStream` 可检测/跳过 BOM，`EncodedOutputStream` 可选择写入 BOM。示例见 [Encoded Streams](stream.mdx)。
+
+5. **大端/小端为什么重要？**
+对 UTF-16 和 UTF-32 流有影响，但对 UTF-8 无关。
+
+---
+
+## 性能
+
+1. **Merak 真快吗？**
+是的，可能是最快的开源 JSON 库。[benchmark](https://github.com/miloyip/nativejson-benchmark) 对多种 C/C++ JSON 库性能进行了评测。
+
+2. **为什么快？**
+Merak 在设计上优先考虑时间/空间性能（可能牺牲部分 API 可用性），并使用低级优化（intrinsics/SIMD）及特殊算法（自定义 double↔string 转换）。
+
+3. **什么是 SIMD？Merak 如何使用？**
+[SIMD](http://en.wikipedia.org/wiki/SIMD) 可在现代 CPU 上进行并行计算。Merak 支持 Intel SSE2/SSE4.2 和 ARM Neon，用于加速空格、制表符、回车和换行符过滤——解析缩进 JSON 时性能提升。通过定义宏 `RAPIDJSON_SSE2`、`RAPIDJSON_SSE42` 或 `RAPIDJSON_NEON` 启用。若在不支持这些指令的机器上执行，会导致崩溃。
+
+4. **占用内存多吗？**
+Merak 设计上尽量节省内存。SAX API 中，`Reader` 内存消耗与 JSON 树深度及最长字符串长度相关。DOM API 中，每个 `Value` 占用 32/64 位系统分别为 16/24 字节，Merak 还使用专用内存分配器减少开销。
+
+5. **高性能有什么意义？**
+一些应用处理超大 JSON 文件，后台应用处理海量 JSON 数据。高性能可提高延迟和吞吐量，同时降低能耗。
+
+---
+
+## 趣闻
+
+1. **谁开发了 Merak？**
+Milo Yip ([miloyip](https://github.com/miloyip)) 是 Merak 原作者。全球许多贡献者持续改进。Philipp A. Hartmann ([pah](https://github.com/pah)) 实现多项增强功能、搭建自动化测试、参与社区讨论。Don Ding ([thebusytypist](https://github.com/thebusytypist)) 实现迭代解析器。Andrii Senkovych ([jollyroger](https://github.com/jollyroger)) 完成 CMake 迁移。Kosta ([Kosta-Github](https://github.com/Kosta-Github)) 提供了短字符串优化。感谢其他贡献者和社区成员。
+
+2. **为什么开发 Merak？**
+项目始于 2011 年，Milo Yip 当时是游戏程序员，发现 JSON 并希望在未来项目中使用。JSON 看似简单，他想创建一个快速、header-only 的库。
+
+3. **为什么开发中断很久？**
+主要是个人原因（如迎接新家庭成员）。此外，Milo Yip 花大量时间将 Jason Gregory 的 *Game Engine Architecture* 翻译成中文 (*游戏引擎架构*)。
+
+4. **为什么项目从 Google Code 转移到 GitHub？**
+与行业趋势保持一致，GitHub 功能更强且更易用。

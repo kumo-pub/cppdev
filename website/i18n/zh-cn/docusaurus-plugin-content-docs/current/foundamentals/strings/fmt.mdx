@@ -1,0 +1,477 @@
+# Formatted Output
+
+`kumo` integrates two custom formatting libraries: `fmt` and `turbo::str_format()`.
+
+The `str_format` library is a type-safe alternative to the `printf()` family of string formatting routines in the `<cstdio>` standard library header. This `str_format` library provides most of the functionality of `printf()`-style string formatting along with many additional benefits:
+
+* Type safety, including native support for `std::string` and `std::string_view`
+* Reliable behavior independent of the standard library
+* Support for POSIX positional extensions
+* Native support for Turbo types such as `turbo::Cord` and extensibility to support other types
+* Significantly faster than native `printf` functions (typically 2 to 3 times faster)
+* Streamable to various existing sinks
+* Extensible to custom sinks
+
+In addition, the library includes drop-in replacements for `printf()`, `fprintf()`, and `snprintf()`.
+
+## `fmt` Formatted Output
+
+Installation:
+
+```shell
+kmpkg install fmt
+```
+For usage, refer to the [fmt official documentation](https://fmt.dev/11.0/), [GitHub repository](https://github.com/fmtlib/fmt), and [Gitee mirror](https://gitee.com/kumo-hub/fmt).
+
+## Basic Usage
+
+The primary `str_format()` function is a variadic template that returns a string given a `printf()`-style *format string* and zero or more additional arguments. Use it like `sprintf()`.
+
+A format string typically consists of ordinary character data and one or more format conversion specifiers (indicated by the "%" character). Ordinary character data is returned to the result string unchanged, while each conversion specifier performs substitutions with the other typed arguments of `str_format()`.
+
+`str_format()` returns an empty string on error and is marked with `TURBO_MUST_USE_RESULT`.
+
+Example:
+
+```cpp
+#include "turbo/strings/str_format.h"
+
+std::string s = turbo::str_format("Welcome to %s, Number %d!", "The Village", 6);
+EXPECT_EQ("Welcome to The Village, Number 6!", s);
+```
+
+`str_format()` format strings should generally be declared as `constexpr`\*; as a result, if you need to supply it as a variable, use `std::string_view` instead of `std::string`:
+
+```cpp
+// Won't compile, not constexpr (and the `std::string` can't be declared
+// constexpr).
+std::string format_string = "Welcome to %s, Number %d!";
+std::string s = turbo::str_format(format_string, "The Village", 6);
+
+// This will compile.
+constexpr std::string_view kFormatString = "Welcome to %s, Number %d!";
+std::string s = turbo::str_format(kFormatString, "The Village", 6);
+```
+
+Requiring the format string to be `constexpr` allows compile-time checking of the format string.
+
+:::info
+Format strings must either be declared as `constexpr` or dynamically formatted using the `turbo::parsed_format` type. See [Advanced Formatting](#advanced) below.
+:::
+
+### Conversion Specifiers
+
+The `str_format` library primarily follows the POSIX syntax as specified in the [POSIX `printf()` family specifications][1], which defines format conversion specifiers. (Exceptions are noted below.)
+
+A format conversion specifier is a string of the form:
+
+* `%` character
+* An optional positional specifier of the form `n$`, where `n` is a non-negative positive value. (e.g., `3$`, `10$`, etc.). Note that `str_format` fully supports positional modifiers; they are a POSIX extension and not part of standard `printf` notation.
+* A set of optional alignment and padding flags:
+  * `-` Left-justifies the result. (Right-justified by default.)
+  * `+` Forces a plus sign to precede positive results. (A minus sign always precedes negative results.)
+  * ` ` (space) Adds a space before the result of signed conversions. (`+` takes precedence over space).
+  * `#` Uses an alternative conversion form for certain specifiers. (For example, using `“#”` on a hexadecimal conversion will prepend `“0x”` or `“0X”` to the hexadecimal string result.)
+  * `“0”` (zero) Pads integer and floating-point conversions with leading zeros. (Zero padding for integers is ignored if precision is explicitly specified.) This flag is ignored if `“-”` is used.
+* An optional integer value of the form `n` specifying the minimum width of the result, or <code>*<i>variable</i></code> to use a variable of type `int` to specify this value.
+* An optional precision value, specified as `.n` where `n` is an integer value, or <code>.*<i>variable</i></code> to use a variable of type `int` to specify this value.
+* A length modifier, used to modify the length of the data type. In `str_format()`, these values are largely ignored (and unnecessary, as `str_format()` is type-safe) but are allowed for backward compatibility:
+  * `hh`, `h`, `l`, `ll`, `L`, `j`, `z`, `t`, `q`  
+    There is one case where the length modifier has a visible effect: if the requested type is `c`, the `l` modifier causes the provided argument to be treated as `wchar_t` instead of `char`. (This happens automatically if the provided argument is already of type `wchar_t`.)
+* A type specifier:
+  * `c` Represents a character value. These are treated as `char` unless the provided type is `wchar_t` or the `l` modifier is present, in which case they are treated as `wchar_t` and converted to a multi-byte string encoded as UTF-8.
+  * `s` Represents a string value. Wide strings (`std::wstring`, `std::wstring_view`) are converted to multi-byte strings encoded as UTF-8.
+  * `d` or `i` Represents an integer value, including enumeration type values
+  * `o` Converts an unsigned integer (including enumeration type values) to an octal value
+  * `x` or `X` Converts an unsigned integer (including enumeration type values) to a hexadecimal value
+  * `u` Represents an unsigned integer value
+  * `f` or `F` Converts a floating-point value to decimal notation
+  * `e` or `E` Converts a floating-point value to exponential notation
+  * `a` or `A` Converts a floating-point value to hexadecimal exponential notation
+  * `g` or `G` Converts a floating-point value to either decimal or exponential notation based on precision
+  * `p` Represents a pointer address value
+  * `n` Represents a special case that writes the number of characters written up to this point.
+  * `v` Represents a value formatted with the default format for its deduced type. These deduced types include many primitive types represented here as well as user-defined types with appropriate extensions. (See [User-Defined Formats](#user-defined-formats) below.)
+
+:::info
+Note: The `n` specifier in the `printf` function family is unsafe. `str_format()` allows the use of `%n` only when such values are captured within a safe scope using the `FormatCountCapture` class. See the example below.
+:::
+
+:::info
+Note: The `v` specifier (standing for "value") is a type specifier that does not exist in the `POSIX` specification. `%v` will format the value according to its deduced type. `v` uses `d` for signed integer values, `u` for unsigned integer values, `g` for floating-point values, and formats boolean values as "true"/"false" (instead of "1" or "0" for booleans formatted with `d`). `const char*` is not supported; use `std::string` and `string_view` instead. The `char` type is also not supported due to ambiguity. This specifier does not support modifiers.
+:::
+
+Examples:
+
+```cpp
+// Characters
+turbo::str_format("%c", 'a') -> "a"
+turbo::str_format("%c", 32)  -> " "
+turbo::str_format("%c", 100) -> "d"
+turbo::str_format("%lc", 0x2002) -> (Locale-dependent)  // E.g. U+2002 as UTF-8
+
+// Strings
+turbo::str_format("%s", "Hello!") -> "Hello!"
+
+// Decimals
+turbo::str_format("%d", 1)    -> "1"
+turbo::str_format("%02d", 1)  -> "01"       // Zero-padding
+turbo::str_format("%-2d", 1)  -> "1 "       // Left justification
+turbo::str_format("%0+3d", 1) -> "+01"      // + specifier part of width
+
+// Octals
+turbo::str_format("%o", 16)   -> "20"
+turbo::str_format("%o", 016)  -> "16"       // literal octal
+turbo::str_format("%#o", 016) -> "016"      // alternative form
+
+// Hex
+turbo::str_format("%x", 16)      -> "10"
+turbo::str_format("%x", 0x16)    -> "16"
+turbo::str_format("%#x", 0x16)   -> "0x16"    // alternative form
+turbo::str_format("%X", 10)      -> "A"       // Upper-case
+turbo::str_format("%#06x", 0x16) -> "0x0016"  // "0x" counts as part of the width
+
+// Unsigned Integers
+turbo::str_format("%u", 16) -> "16"
+turbo::str_format("%u", -16) -> "4294967280"
+
+// Big Integers
+// Length modifiers are unnecessary, and are ignored
+turbo::str_format("%d", 100'000'000'000'000) -> "100000000000000"
+turbo::str_format("%lld", 100'000'000'000'000) -> "100000000000000"
+
+// Floating Point
+// Default precision of %f conversion is 6
+turbo::str_format("%f", 1.6)       -> "1.600000" // Width includes decimal pt.
+turbo::str_format("%05.2f", 1.6)   -> "01.60"
+turbo::str_format("%.1f", 1.63232) -> "1.6"      // Rounding down
+turbo::str_format("%.3f", 1.63451) -> "1.635"    // Rounding up
+turbo::str_format("%*.*f", 5, 2, 1.63451) -> " 1.63"  // Same as "%5.2f"
+
+// Exponential Notation
+// Default precision of a %e conversion is 6
+// Default precision of exponent is 2
+// Default sign of exponent is +
+turbo::str_format("%e", 1.6)    -> "1.600000e+00"
+turbo::str_format("%1.1e", 1.6) -> "1.6e+00"
+
+// Hex Exponents
+turbo::str_format("%a", 3.14159) -> "0x1.921f9f01b866ep+1"
+
+// Floating Point to Exponential Notation
+turbo::str_format("%g", 31415900000) -> "3.14159e+10"
+
+// Pointer conversion
+int* ptr = 9;
+turbo::str_format("%p", ptr) -> "0x7ffdeb6ad2a4";
+
+// Positional Modifiers
+std::string s = turbo::str_format("%2$s, %3$s, %1$s!", "vici", "veni", "vidi");
+EXPECT_EQ(s, "veni, vidi, vici!");
+
+// Character Count Capturing
+int n = 0;
+std::string s = turbo::str_format(
+    "%s%d%n", "hello", 123, turbo::FormatCountCapture(&n));
+EXPECT_EQ(8, n);
+
+// %v
+std::string s = "hello";
+unsigned int x = 16;
+turbo::str_format("%v", s)    -> "hello"
+turbo::str_format("%v", 1)    -> "1"
+turbo::str_format("%v", x)    -> "16"
+turbo::str_format("%v", 1.6)  -> "1.6"
+turbo::str_format("%v", true) -> "true"
+```
+
+### Type Support
+
+`str_format()` natively supports all of these basic C++ types:
+
+*   Characters:
+    *   `char`
+    *   `signed char`
+    *   `unsigned char`
+    *   `wchar_t`
+*   Strings:
+    *   `std::string`
+    *   `std::wstring`
+    *   `std::string_view` (if available)
+    *   `std::wstring_view` (if available)
+*   Integers:
+    *   `int`
+    *   `short`
+    *   `unsigned short`
+    *   `unsigned`
+    *   `long`
+    *   `unsigned long`
+    *   `long long`
+    *   `unsigned long long`
+*   Floating-point:
+    *   `float`
+    *   `double`
+    *   `long double`
+
+Unlike the printf family of functions, str_format() does not rely on the caller to encode the exact type of the argument into the format string. (With `printf()`, this must be done carefully using length modifiers and conversion specifiers—e.g., `%llu` encodes the type `unsigned long long`.) In the `str_format` library, format conversions specify broader C++ conceptual categories rather than exact types. For example, `%s` binds to any string-like argument, so `std::string`, `std::wstring`, `std::string_view`, `const char*`, and `const wchar_t*` are all accepted. Similarly, `%d` accepts any integer-like argument, and so on.
+
+## Advanced Formatting {#advanced}
+
+Strings that are formatted very frequently or are critical for performance can be specified using `turbo::ParsedFormat`. `turbo::ParsedFormat` represents a pre-parsed `turbo::FormatSpec`, where template parameters specify a set of conversion specifiers.
+
+In C++14, these conversion specifiers are limited to single character values (e.g., `d`); in C++17 or later, you can also specify one or more `turbo::FormatConversionCharSet` enums (e.g., `turbo::FormatConversionCharSet::d` or `turbo::FormatConversionCharSet::d | Turbo::FormatConversionCharSet::x` combined using bitwise OR).
+
+Several enums specify entire conversion groups:
+
+*   `turbo::FormatConversionCharSet::kIntegral` = `d | i | u | o | x | X`
+*   `turbo::FormatConversionCharSet::kFloating` = `a | e | f | g | A | E | F | G`
+*   `turbo::FormatConversionCharSet::kNumeric` = `kIntegral | kFloating`
+*   `turbo::FormatConversionCharSet::kString` = `s`
+*   `turbo::FormatConversionCharSet::kPointer` = `p`
+
+These type specifiers are checked at compile time. This approach is much faster than re-parsing a `const char*` format each time it is used.
+
+```cpp
+// Verified at compile time.
+static const auto* const format_string =
+    new turbo::ParsedFormat<'s','d'>("Welcome to %s, Number %d!");
+turbo::str_format(*format_string, "TheVillage", 6);
+
+// Verified at runtime.
+auto format_runtime = turbo::ParsedFormat<'d'>::New(format_string);
+if (format_runtime) {
+  value = turbo::str_format(*format_runtime, i);
+} else {
+  ... error case ...
+}
+
+// C++17 allows extended formats to support multiple conversion characters per
+// argument, specified via a combination of `FormatConversionCharSet` enums.
+using MyFormat = turbo::ParsedFormat<turbo::FormatConversionCharSet::d |
+                                    turbo::FormatConversionCharSet::x>;
+MyFormat GetFormat(bool use_hex) {
+  if (use_hex) return MyFormat("foo %x bar");
+  return MyFormat("foo %d bar");
+}
+
+```
+
+Precompiled formats can also be used as a way to pass formats across API boundaries in a type-safe manner. Format objects encode type information in their template parameters to allow compile-time checking of format functionality.
+
+Example:
+
+```cpp
+// Note: this example only compiles in C++17 and above.
+class MyValue {
+ public:
+  // MyValueFormat can be constructed from a %d or a %x format and can be
+  // used with any argument type that can be formatted with %d or %x.
+  using MyValueFormat = turbo::ParsedFormat<turbo::FormatConversionCharSet::d |
+                                           turbo::FormatConversionCharSet::x>;
+  const MyValueFormat& GetFormat(int radix) const {
+    return radix == RADIX_HEX ? format_x_ : format_d_;
+  }
+ private:
+   const MyValueFormat format_d_{"%6d"};
+   const MyValueFormat format_x_{"%8x"};
+};
+
+std::string PrintIt(const MyValue& foo) {
+  return turbo::StringF(foo.GetFormat(mode), my_int_value_);
+}
+```
+
+## PrintF Alternatives
+
+In addition to the `str_format()` function like `std::sprintf()`, `str_format.h` also provides direct drop-in replacements for `std::printf()`, `std::fprintf()`, and `std::snprintf()`:
+
+*   `turbo::PrintF()`
+*   `turbo::FPrintF()`
+*   `turbo::SNPrintF()`
+
+These functions are all similar to the C built-in functions. In particular, they take the same arguments, return an `int` with the same semantics, and can set `errno`. Using these functions is just like using any printf variant.
+
+Example:
+
+```cpp
+turbo::PrintF("Trying to request TITLE: %s USER: %s\n", title, user);
+```
+
+## Appending to Strings
+
+The `turbo::str_append_format()` function allows you to perform `printf`-like formatting into an existing `&dest` string, appending the formatted string to it. `str_append_format()` returns `*dest` for convenient chaining.
+
+Example:
+
+```cpp
+std::string& turbo::str_append_format(&dest, format, ...)
+```
+
+## Writing to Streams
+
+`turbo::StreamFormat()` returns an object that can be efficiently streamed to a `std::ostream`, such as for I/O or files.
+:::warning
+Note: The returned object must be used immediately. That is, do not retain it in an `auto` variable.
+:::
+
+Example:
+
+```cpp
+//  Stream to standard output
+std::cout << turbo::StreamFormat("name: %-20.4s: quota: %7.3f", name, quota);
+
+// Stream to a file
+if (FILE* file_handle = fopen("myfile.txt", "w"); file_handle != nullptr) {
+  int result =
+      turbo::FPrintF(file_handle, "%s", "C:\\Windows\\System32\\");
+  return result;
+}
+```
+
+## User-Defined Formats {#user-defined-formats}
+
+The `str_format` library provides custom utilities for formatting user-defined types with `str_format()`. As with most type extensions, you should own the type you want to extend.
+
+> Tip: For types you don't own you can use `turbo::FormatStreamed()` to format
+> types that have an `operator<<` but no intrinsic type support within
+> `str_format()`.
+>
+> ```cpp
+> turbo::PrintF("My Foo: %s\n", turbo::FormatStreamed(foo));
+> ```
+
+There are two ways to format user-defined types:
+
+* `turbo_stringify()` provides a simpler user API with the `v` type specifier and can also be used with `turbo::str_cat()`, `turbo::substitute()`, and logging in addition to `str_format()`.
+* `turbo_format_convert()` is more customizable, allowing users better control over type specifiers and additional modifiers used to format their types.
+
+We'll cover both of these approaches below.
+
+### `turbo_stringify()`
+
+To enable a type to support the `turbo_stringify()` extension point, define an appropriate `turbo_stringify()` function template for that type as described below. For a class type, `turbo_stringify()` should be defined as a `friend` function template. For an enumeration type `E`, define `turbo_stringify()` at namespace scope in the same namespace as `E` so that it can be found via argument-dependent lookup (ADL).
+
+A `turbo_stringify()` overload should have the following signature:
+
+```cpp
+template <typename Sink>
+void turbo_stringify(Sink& sink, const UserDefinedType& value);
+```
+
+`turbo_stringify()` is only supported for use with the type specifier `%v`, which uses type deduction for formatting purposes.
+
+Example usage in a user-defined type is shown below:
+
+```cpp
+struct Point {
+
+  ...
+  // str_format support is added to the Point class through an turbo_stringify()
+  // friend declaration.
+  template <typename Sink>
+  friend void turbo_stringify(Sink& sink, const Point& p) {
+    turbo::Format(&sink, "(%d, %d)", p.x, p.y);
+  }
+
+  int x;
+  int y;
+}
+```
+
+Formatting a `Point` can then simply use the `%v` type specifier:
+
+```cpp
+// str_format has built-in support for types extended with turbo_stringify
+turbo::str_format("The point is %v", p);
+// turbo_stringify also automatically includes support for turbo::StrCat and
+// turbo::Substitute()
+turbo::StrCat("The point is ", p);
+turbo::Substitute("The point is $0", p);
+```
+
+In addition, `turbo_stringify()` itself can use `%v` in its own format string to perform this type deduction. Our `Point` above could be formatted as, for example, `"(%v, %v)"`, with the `int` values deduced as `%d`.
+
+### `turbo_format_convert()`
+
+To extend formatting to your custom type using `turbo_format_convert()`, provide a `turbo_format_convert()` overload as a free (non-member) function in the same file and namespace as the type, typically as a `friend` definition. The `str_format` library will check for such overloads when formatting user-defined types with `str_format()`.
+
+A `turbo_format_convert()` overload should have the following signature:
+
+```cpp
+turbo::FormatConvertResult<...> turbo_format_convert(
+    const X& value,
+    const turbo::FormatConversionSpec& conversion_spec,
+    turbo::FormatSink *output_sink);
+```
+
+* The `turbo::FormatConvertResult` return value holds the set of `turbo::FormatConversionCharSet` values valid for this custom type. A return value of `true` indicates the conversion was successful; if false is returned, str_format() will generate an empty string, and this result will propagate to FormatUntyped().
+* `turbo::FormatConversionSpec` holds the fields extracted from the user string during processing. For full documentation of this format, see "Conversion Specifiers" above.
+* `turbo::FormatSink` holds the formatted string as it is being built.
+
+The `turbo::FormatConversionSpec` class also has a number of member functions to inspect the returned conversion character specification:
+
+* `conversion_char()` Returns the base conversion character for this formatting operation.
+* `width()` and `precision()` Indicate whether the conversion operation should adjust the width or precision of the result.
+* `is_basic()` Indicates that no additional conversion flags are included in the conversion, including any flags used to modify width or precision. This method is useful for optimizing conversions via a fast path.
+* `has_left_flag()` Indicates whether the result should be left-aligned by using the "-" character in the format string. E.g. `“%-s”`
+* `has_show_pos_flag()` Indicates whether a sign column should be prepended to the result of this conversion character in the format string by using the `+` character in the format string, even if the result is positive. E.g. `%+d`
+* `has_sign_col_flag()` Indicates whether a forced sign column should be added to the result of this conversion character by using a space character (' ') in the format string. E.g. `"%i"`
+* `has_alt_flag()` Indicates whether the `alternative` format should be applied to the result of this conversion character. E.g. `%#h`
+* `has_zero_flag()` Indicates whether zeros should be prepended to the result of this conversion character instead of spaces by using the "0" character in the format string. E.g. `%0f`
+
+These member functions can be used to select how to handle conversion operations encountered in the source format string.
+
+Example usage in a user-defined type is shown below:
+
+```cpp
+struct Point {
+
+  ...
+  // str_format support is added to the Point class through an
+  // turbo_format_convert() friend declaration.
+  //
+  // FormatConvertResult indicates that this formatting extension will accept
+  // kIntegral ( d | i | u | o | x | X) or kString (s) specifiers. Successful
+  // conversions will return `true`.
+  friend turbo::FormatConvertResult<turbo::FormatConversionCharSet::kString |
+                                   turbo::FormatConversionCharSet::kIntegral>
+  turbo_format_convert(const Point& p,
+                    const turbo::FormatConversionSpec& spec,
+                    turbo::FormatSink* s) {
+    if (spec.conversion_char() == turbo::FormatConversionChar::s) {
+      // If the conversion char is %s, produce output of the form "x=1 y=2"
+      turbo::Format(s, "x=%vy=%v", p.x, p.y);
+    } else {
+      // If the conversion char is integral (%i, %d ...) , produce output of the
+      // form "1,2". Note that no padding will occur here.
+      turbo::Format(s, "%v,%v", p.x, p.y);
+    }
+    return {true};
+  }
+
+  int x;
+  int y;
+};
+```
+
+## Defining Acceptors
+
+```cpp
+bool turbo::Format(&dest, format, ...)
+```
+
+Similar to `turbo::str_append_format`, but the output is to an arbitrary destination object that supports the `RawSink` interface. To implement this interface, provide an overload of `turbo_format_flush()` for your sink object:
+
+```cpp
+void turbo_format_flush(MySink* dest, std::string_view part);
+```
+
+where `dest` is the pointer passed to `turbo::format()`. This is typically done by providing a free function that can be found by ADL.
+
+The library already provides built-in support for sinks using types `std::string`, `std::ostream`, and `turbo::Cord` with `turbo::format()`.
+
+:::info
+Remember that only the type owner should write such extensions. An overload for a type `MySink` should be declared **only** in the header that declares `MySink`, and in the same namespace as `MySink`. If a particular type does not support this extension please ask the owner to write one, or make your own wrapper type that supports it.
+:::
+
+[1]: http://pubs.opengroup.org/onlinepubs/9699919799/functions/fprintf.html

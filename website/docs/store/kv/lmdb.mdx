@@ -1,0 +1,153 @@
+---
+title: LMDB
+---
+
+LMDB (Lightning Memory-Mapped Database) is an embedded key–value store used by Kumo
+for transactional, high-performance local metadata and small control-plane data.
+
+This page documents its **performance characteristics**, **C++ API usage**,
+and **on-disk layout** as they relate to Kumo.
+
+---
+
+## 1. Performance characteristics {#performance-characteristics}
+
+LMDB is optimized for:
+
+- Fully ACID transactions
+- Memory-mapped I/O
+- Single-writer, multiple-reader concurrency
+- Ordered iteration by key
+
+Typical characteristics (single node, SSD/NVMe storage):
+
+| Metric | Typical range |
+|-------|----------------|
+| Point lookup (Get) | ~1–20 µs |
+| Sequential scan | Memory bandwidth bound |
+| Write throughput | 50–300 MB/s (single writer) |
+| Read concurrency | Unlimited (multi-reader) |
+| Memory usage | Mostly mapped file size + page cache |
+
+:::warning TIPS
+
+LMDB maps the entire database into memory.
+For Kumo control-plane usage, the total dataset **should typically not exceed 1–2 GB per node**.
+Exceeding this may lead to memory pressure and slower writes.
+
+:::
+
+LMDB is best suited for **embedded workloads** where:
+
+- Transactional guarantees are required
+- Reads dominate writes
+- Dataset fits comfortably in virtual memory
+
+---
+
+## 2. C++ API usage {#api}
+
+Kumo uses the native LMDB C API via C++ wrappers.
+
+### Open an environment
+
+```cpp
+#include <lmdb.h>
+
+MDB_env* env;
+int rc = mdb_env_create(&env);
+mdb_env_set_maxdbs(env, 16);
+mdb_env_set_mapsize(env, 1UL * 1024 * 1024 * 1024); // 1 GB
+rc = mdb_env_open(env, "/data/kumo/lmdb", 0, 0664);
+````
+
+### Begin a transaction
+
+```cpp
+MDB_txn* txn;
+rc = mdb_txn_begin(env, nullptr, 0, &txn); // 0 = read-write
+```
+
+### Open a database
+
+```cpp
+MDB_dbi dbi;
+rc = mdb_dbi_open(txn, nullptr, 0, &dbi); // nullptr = default DB
+```
+
+### Put (Set)
+
+```cpp
+MDB_val key, data;
+key.mv_size = strlen("key1");
+key.mv_data = (void*)"key1";
+data.mv_size = strlen("value1");
+data.mv_data = (void*)"value1";
+
+rc = mdb_put(txn, dbi, &key, &data, 0);
+```
+
+### Get
+
+```cpp
+MDB_val val;
+rc = mdb_get(txn, dbi, &key, &val);
+if (rc == 0) {
+    std::string value((char*)val.mv_data, val.mv_size);
+}
+```
+
+### Commit transaction
+
+```cpp
+rc = mdb_txn_commit(txn);
+```
+
+### Abort transaction
+
+```cpp
+mdb_txn_abort(txn); // undo changes
+```
+
+### Close database and environment
+
+```cpp
+mdb_dbi_close(env, dbi);
+mdb_env_close(env);
+```
+
+---
+
+## 3. On-disk directory structure
+
+A typical LMDB environment directory looks like:
+
+```
+/data/kumo/lmdb/
+├── data.mdb
+├── lock.mdb
+```
+
+| File       | Purpose                                 |
+| ---------- | --------------------------------------- |
+| `data.mdb` | Memory-mapped database file             |
+| `lock.mdb` | Lock file for single-writer concurrency |
+
+LMDB uses a **memory-mapped file** and keeps all B+ tree pages in memory.
+No background compaction is required. The database grows automatically but
+requires **predefined map size**.
+
+Applications should treat the environment as **opaque** and avoid manual edits.
+
+---
+
+## Summary
+
+LMDB provides:
+
+* Embedded, memory-mapped KV interface
+* Full ACID transactions
+* Very low read latency and multi-reader concurrency
+* Simple, compact on-disk format
+
+It is well suited for Kumo’s **transactional local metadata** and small control-plane datasets.

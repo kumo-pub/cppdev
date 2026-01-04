@@ -1,0 +1,225 @@
+# parallel-hashmap 使用指南：高性能、线程安全、内存高效的哈希表与 B 树
+
+## 1. 背景
+
+在后端开发中，线程安全且高性能的容器数据结构是常见需求。开源库 [parallel-hashmap](https://github.com/kumose/collie) 基于 Google 的 Abseil-C++ 实现进行了增强，可直接用于开发。
+
+---
+
+## 2. 概览
+
+parallel-hashmap 提供高性能哈希表实现和 B 树实现，可替代 `std::unordered_map/set` 与 `std::map/set`。核心特点：
+
+* **Header-only**：无需链接，包含头文件即可使用。
+* **STL API 兼容**：可无缝替换 `std::unordered_map/set` 与 `std::map/set`。
+* **C++11+ 支持**：提供 C++14/17 API，如 `try_emplace`。
+* **高效**：插入速度比 `std::unordered_map` 快约 1 倍，查找速度快约 3 倍。
+* **低内存占用**：flat_hash_map/set 内存占用接近 sparsepp，B 树比 `std::set` 节省 ~90% 内存。
+* **异构查找**、前向声明、磁盘 dump/load（flat hash 表）支持。
+* **跨平台**：Windows、Linux、MacOS。
+* **支持 Boost hash_value()**，以及 `std::pair` / `std::tuple` 哈希。
+* **Visual Studio Natvis 可视化**（仅 hash map/set）。
+
+---
+
+## 3. 高速与内存优化
+
+* Flat hash 表基于闭合寻址，将数据直接存储在数组中，避免间接访问。
+* SSE2 并行搜索 16 个槽位，即使负载因子 87.5%，也能保持高速。
+* 对 Abseil flat_hash_map 的改进：
+
+* 将大 hash 表拆分为 2 的幂次子表（如 16 个），降低扩容峰值内存到原来的 1/16。
+* 并发支持：每个子表可单独加锁，实现线程安全。
+
+> 注意：本库源自并修改 Abseil-C++，行为可能与原版不同，独立使用不保证完全一致。
+
+---
+
+## 4. 安装
+
+无需安装，包含头文件即可使用。
+
+---
+
+## 5. 示例
+
+```cpp
+#include <iostream>
+#include <string>
+#include <parallel_hashmap/phmap.h>
+
+using phmap::flat_hash_map;
+
+int main() {
+    flat_hash_map<std::string, std::string> email = {
+        { "tom",  "tom@gmail.com"},
+        { "jeff", "jk@gmail.com"},
+        { "jim",  "jimg@microsoft.com"}
+    };
+
+    for (const auto& n : email)
+        std::cout << n.first << "'s email is: " << n.second << "\n";
+
+    email["bill"] = "bg@whatever.com";
+    std::cout << "bill's email is: " << email["bill"] << "\n";
+
+    return 0;
+}
+```
+
+---
+
+## 6. 提供的容器类型及特点
+
+### 6.1 Hash 表（`parallel_hashmap/phmap.h`）
+
+* `flat_hash_set` / `flat_hash_map`
+* `node_hash_set` / `node_hash_map`
+* `parallel_flat_hash_set` / `parallel_flat_hash_map`
+* `parallel_node_hash_set` / `parallel_node_hash_map`
+
+### 6.2 B 树（`parallel_hashmap/btree.h`）
+
+* `btree_set` / `btree_map`
+* `btree_multiset` / `btree_multimap`
+* 特点：每个节点存储多个值，缓存友好，低内存占用。
+
+### 6.3 Hash 容器设计要点
+
+* **Flat 系列**：内部移动键值，速度快、内存低；外部指针可能悬空。值大于 100 字节建议使用 Node 系列。
+* **Node 系列**：节点独立，外部指针安全。
+* **Parallel 系列**：适合少量大表，高并发；非 parallel 适合大量小表。
+* **Parallel 系列优点**：
+
+1. 扩容峰值内存低。
+2. 支持多线程安全并发。
+
+### 6.4 B 树设计要点
+
+* 替代红黑树容器，缓存友好。
+* 不适用于：
+
+1. 迭代器/指针稳定性要求高。
+2. 大对象高移动成本。
+* 若不需要顺序，哈希表性能更优。
+
+---
+
+## 7. 对 Abseil Hash 表的修改
+
+* 默认哈希改为 `std::hash`，可通过宏 `PHMAP_USE_ABSL_HASH` 切换。
+* `erase(iterator)` / `erase(const_iterator)` 返回下一个迭代器，提供 `_erase(iterator)` 无返回版本。
+* 支持 `std::string_view`，不依赖 `absl::string_view`。
+* 哈希种子默认固定，可通过宏启用随机化（防 DoS）。
+* 内部哈希值混合，避免低熵哈希性能下降。
+
+---
+
+## 8. 内存占用
+
+| 类型            | 内存占用                        | 扩容峰值内存           |
+| ------------- | --------------------------- | ---------------- |
+| flat          | `sizeof(C::value_type) + 1` | 0.5 倍桶数组         |
+| node          | `sizeof(void*) + 1`         | 0.5 倍桶数组         |
+| parallel flat | `sizeof(C::value_type) + 1` | ~0.03（0.5 / 子表数） |
+| parallel node | `sizeof(void*) + 1`         | ~0.03（0.5 / 子表数） |
+
+* `size()`: 元素数量
+* `load_factor()`: `size() / bucket_count()`，在 0.4375 ~ 0.875 之间
+* 并行哈希表：模板参数 N=4 时，16 个子表，单线程扩容时仅扩容一个子表。
+
+---
+
+## 9. 哈希表迭代器失效规则
+
+| 操作                                   | 迭代器失效           |
+| ------------------------------------ | --------------- |
+| 只读操作 / swap                          | 永不失效            |
+| clear / rehash / reserve / operator= | 总是失效            |
+| insert / emplace / operator[]        | 仅在触发 rehash 时失效 |
+| erase                                | 仅被删除元素失效        |
+
+---
+
+## 10. B 树迭代器失效规则
+
+| 操作                                    | 迭代器失效 |
+| ------------------------------------- | ----- |
+| 只读 / swap                             | 永不失效  |
+| clear / operator=                     | 总是失效  |
+| insert / emplace / operator[] / erase | 都会失效  |
+
+---
+
+## 11. 自定义类哈希函数
+
+* Flat 系列需要提供哈希函数：
+
+1. 通过模板参数 `HashFcn`。
+2. 使用 Boost 时添加 `hash_value()`。
+
+---
+
+## 12. 线程安全
+
+### 12.1 基本规则（C++ STL 标准）
+
+* 多线程读取同一哈希表：安全
+* 单线程写 + 其他线程读写同一表：不安全，需保护
+* 多线程操作不同实例：安全
+
+### 12.2 Parallel 系列扩展
+
+* 模板参数可指定锁类型（`std::shared_mutex` / `std::mutex` / `boost::shared_mutex`）
+* 内部每个子表独立加锁：
+
+* 读：`if_contains()` 安全获取引用
+* 写：`modify_if()` 或 `try_emplace_l()` 安全修改
+* 注意：标准迭代器/引用不受保护，多线程修改时不可依赖
+
+### 12.3 推荐锁
+
+* C++17 `std::shared_mutex` 性能最佳
+
+### 12.4 并发示例
+
+```cpp
+#include <assert.h>
+#include <stdint.h>
+#include <thread>
+#include <vector>
+#include "parallel-hashmap/parallel_hashmap/phmap.h"
+
+typedef phmap::parallel_flat_hash_map<uint64_t, uint32_t,
+    phmap::priv::hash_default_hash<uint64_t>,
+    phmap::priv::hash_default_eq<uint64_t>,
+    std::allocator<std::pair<const uint64_t, uint32_t>>, 4, std::shared_mutex> MapT;
+
+int main() {
+    MapT index;
+    const uint32_t key_num = 10000;
+    const int thread_num = 10;
+
+    for (uint64_t key = 0; key < key_num; ++key)
+        index.try_emplace_l(key, [](uint32_t& val){ val = 0; }, 0);
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < thread_num; ++i)
+        threads.emplace_back([&](){
+            for (uint64_t key = 0; key < key_num * 10; ++key)
+                index.modify_if(key, [](uint32_t& val){ ++val; });
+        });
+
+    for (auto& t : threads) t.join();
+
+    uint32_t hit_num = 0;
+    for (uint64_t key = 0; key < key_num * 10; ++key)
+        index.if_contains(key, [&](const uint32_t& val){
+            assert(thread_num == val);
+            ++hit_num;
+        });
+
+    assert(hit_num == key_num);
+    return 0;
+}
+```

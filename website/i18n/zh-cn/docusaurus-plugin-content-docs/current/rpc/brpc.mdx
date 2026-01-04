@@ -1,0 +1,100 @@
+---
+title: BRPC
+---
+
+# BRPC 概览
+
+BRPC 是一个高性能 RPC 框架，在 C++ 后端服务中被广泛使用。在 Kumo 生态中，它是内部 **KRPC** 框架的基础。
+
+## 1. 高性能后端 RPC
+
+BRPC 适用于 **单机高 QPS、延迟敏感且需控制 CPU 使用的后端核心服务**。
+
+* 典型后端场景：
+
+* 内部存储服务
+* 搜索服务
+* 缓存层
+* 分布式计算节点
+
+* 支持异步 I/O、线程池调度和高效对象池。
+
+## 2. Kumo 演进：KRPC
+
+Kumo 在 BRPC 基础上开发了 **KRPC**，主要目标：
+
+1. **提升性能**
+2. **改善运维友好性**
+
+KRPC 完全覆盖 BRPC 功能。对于大多数业务层，**推荐使用 KRPC** 以降低运维复杂度。
+
+## 3. BRPC 的保留价值
+
+* 当内部框架选择受限时，优先使用 KRPC。
+* **必要场景**：若系统需使用 BRAFT（Raft 实现），必须使用 BRPC，因为 KRPC 当前不原生支持 Raft。
+* BRPC 仍可独立使用，尤其适合高 QPS 后端或特定协议需求。
+
+## 4. 生态与集成
+
+* 支持 HTTP/HTTPS、protobuf、Thrift、JSON 等协议。
+* 生态主要面向 **C++ 后端**。
+* 集成复杂度略低于 gRPC，适合同团队或同语言调用。
+* 功能覆盖和生态支持足够满足后端服务需求。
+
+## 5. 运维注意事项
+
+* 提供调试、性能指标、线程调度工具，但运维成本相对较高。
+* 高 QPS 服务应控制 CPU 使用在 **50%-70%** 范围，以避免线程调度瓶颈或队列阻塞。
+* 内存池管理应合理，避免长期运行出现碎片化或延迟抖动。
+
+## 6. 适用场景
+
+| 层级    | 推荐方案             | 说明                    |
+| ----- | ---------------- | --------------------- |
+| 业务入口层 | gRPC             | 更重视生态集成，QPS 要求中等      |
+| 后端核心层 | KRPC 或 BRPC      | 追求单机性能和低延迟            |
+| 在线服务  | gRPC (< 30k QPS) | QPS 较高的后端 → KRPC/BRPC |
+
+## 7. 示例代码（C++ 后端服务）
+
+```cpp
+#include <brpc/server.h>
+#include "example.pb.h"
+#include "example.pb.cc"
+
+class ExampleServiceImpl : public ExampleService {
+public:
+    void Echo(google::protobuf::RpcController* cntl_base,
+              const EchoRequest* request,
+              EchoResponse* response,
+              google::protobuf::Closure* done) override {
+        brpc::ClosureGuard done_guard(done);
+        response->set_message(request->message());
+    }
+};
+
+int main() {
+    brpc::Server server;
+
+    ExampleServiceImpl service_impl;
+    if (server.AddService(&service_impl, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+        LOG(ERROR) << "Fail to add service";
+        return -1;
+    }
+
+    brpc::ServerOptions options;
+    if (server.Start(8000, &options) != 0) {
+        LOG(ERROR) << "Fail to start server";
+        return -1;
+    }
+
+    server.RunUntilAskedToQuit();
+    return 0;
+}
+```
+
+> 关键点：
+>
+> * BRPC 强调 **单机性能、异步调度和低延迟**。
+> * KRPC 覆盖 BRPC 功能并改善运维友好性，是内部默认推荐框架。
+> * 使用 BRAFT 时必须使用 BRPC。

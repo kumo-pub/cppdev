@@ -1,0 +1,151 @@
+---
+title: LevelDB
+---
+
+LevelDB is an embedded key–value store used by Kumo for local metadata,
+small structured data, and control-plane state.
+
+This page documents its **performance characteristics**, **C++ API usage**,
+and **on-disk layout** as they relate to Kumo.
+
+---
+
+## 1. Performance characteristics {#performance-characteristics}
+
+LevelDB is optimized for:
+
+- Fast random reads
+- High write throughput via log-structured merge tree (LSM)
+- Ordered iteration by key
+
+Typical characteristics (single node, SSD class storage):
+
+| Metric | Typical range |
+|-------|----------------|
+| Point lookup (Get) | ~5–50 µs |
+| Sequential scan | Disk bandwidth bound |
+| Write throughput | 50–200 MB/s |
+| Write amplification | Moderate (LSM compaction) |
+| Read amplification | Low for recent data, higher for cold data |
+| Memory usage | Mostly block cache + memtables |
+
+
+:::warning TIPS
+
+LevelDB performance degrades with very large datasets.
+For Kumo control-plane usage, the number of keys **should typically not exceed 10 million**.
+Beyond this, latency and memory usage can grow significantly.
+
+:::
+
+LevelDB is designed for **embedded workloads** with predictable access patterns
+and works best when:
+
+- Data fits mostly on local SSD
+- Write rates are steady
+- Large values are avoided
+
+---
+
+## 2. C++ API usage {#api}
+
+Kumo uses the native LevelDB C++ API directly.
+
+### Open a database
+
+```cpp
+#include <leveldb/db.h>
+
+leveldb::DB* db;
+leveldb::Options options;
+options.create_if_missing = true;
+
+leveldb::Status status = leveldb::DB::Open(options, "/data/kumo/leveldb", &db);
+if (!status.ok()) {
+    // handle error
+}
+````
+
+### Put (Set)
+
+```cpp
+leveldb::WriteOptions wopt;
+wopt.sync = false;  // true for stronger durability
+
+leveldb::Status s = db->Put(wopt, "key1", "value1");
+```
+
+### Get
+
+```cpp
+std::string value;
+leveldb::ReadOptions ropt;
+
+leveldb::Status s = db->Get(ropt, "key1", &value);
+if (s.ok()) {
+    // value is available
+}
+```
+
+### Delete
+
+```cpp
+leveldb::Status s = db->Delete(leveldb::WriteOptions(), "key1");
+```
+
+### Close
+
+LevelDB does not have an explicit `Close` API.
+The database is closed by deleting the `DB` object.
+
+```cpp
+delete db;
+```
+
+All pending background work is flushed and file handles are released.
+
+---
+
+## 3. On-disk directory structure
+
+A typical LevelDB directory looks like:
+
+```
+/data/kumo/leveldb/
+├── 000003.log
+├── 000004.log
+├── 000007.sst
+├── 000010.sst
+├── CURRENT
+├── MANIFEST-000005
+├── LOCK
+└── LOG
+```
+
+| File         | Purpose                                  |
+| ------------ | ---------------------------------------- |
+| `*.log`      | Write-ahead log (WAL) for recent writes  |
+| `*.sst`      | Immutable sorted string tables           |
+| `MANIFEST-*` | Metadata describing SST files and levels |
+| `CURRENT`    | Pointer to active manifest               |
+| `LOCK`       | File lock for single-process access      |
+| `LOG`        | Diagnostic logs                          |
+
+LevelDB organizes SST files into **levels (L0–L6)** internally.
+Compaction moves data from higher levels to lower levels to reduce read
+amplification.
+
+Applications should treat this directory as **opaque** and never modify it
+directly.
+
+---
+
+## Summary
+
+LevelDB provides:
+
+* A simple embedded KV interface
+* Predictable read performance
+* A compact, self-contained on-disk format
+
+It is well suited for Kumo’s **local control-plane** and metadata workloads.

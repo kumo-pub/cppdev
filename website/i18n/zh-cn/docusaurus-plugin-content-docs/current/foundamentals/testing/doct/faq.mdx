@@ -1,0 +1,166 @@
+# FAQ
+
+- [**How is doctest different from Catch?**](#how-is-doctest-different-from-catch)
+- [**How is doctest different from Google Test?**](#how-is-doctest-different-from-google-test)
+- [**How to get the best compile-time performance with the framework?**](#how-to-get-the-best-compile-time-performance-with-the-framework)
+- [**Is doctest thread-aware?**](#is-doctest-thread-aware)
+- [**Is mocking supported?**](#is-mocking-supported)
+- [**Why are my tests in a static library not getting registered?**](#why-are-my-tests-in-a-static-library-not-getting-registered)
+- [**Why is comparing C strings (`char*`) actually comparing pointers?**](#why-is-comparing-c-strings-char-actually-comparing-pointers)
+- [**How to write tests in header-only libraries?**](#how-to-write-tests-in-header-only-libraries)
+- [**Does the framework use exceptions?**](#does-the-framework-use-exceptions)
+- [**Why do I get compiler errors in STL headers when including the doctest header?**](#why-do-i-get-compiler-errors-in-stl-headers-when-including-the-doctest-header)
+- [**Can different versions of the framework be used within the same binary (executable/dll)?**](#can-different-versions-of-the-framework-be-used-within-the-same-binary-executabledll)
+- [**Why is doctest using macros?**](#why-is-doctest-using-macros)
+- [**How to use with multiple files?**](#how-to-use-with-multiple-files)
+
+### **How is doctest different from Catch?** {#how-is-doctest-different-from-catch}
+
+**Advantages of doctest**:
+
+- **doctest** is [**thread-safe**](faq.mdx#is-doctest-thread-aware)
+- Assertions can be used [**outside of a testing context**](assertions.mdx#using-asserts-out-of-a-testing-context)
+- Using the **doctest** header results in [**20x faster compile times**](benchmarks.mdx#cost-of-including-the-header) compared to [**Catch**](https://github.com/catchorg/Catch2)
+- Assertions in **doctest** compile faster than those in [**Catch**](https://github.com/catchorg/Catch2)
+- **doctest** executes tests [**many times faster**](benchmarks.mdx#runtime-benchmarks) than [**Catch**](https://github.com/catchorg/Catch2)
+- All test-related content can be removed from the binary by defining the [**`DOCTEST_CONFIG_DISABLE`**](configuration.mdx#doctest_config_disable) identifier
+- Does not pull in any headers when included (except in the translation unit that implements the library)
+- Zero warnings even at [**the most aggressive**](https://github.com/doctest/doctest/blob/master/scripts/cmake/common.cmake#L84) warning levels for MSVC/GCC/Clang
+- Tested with over 180 builds on [**more compilers**](features.mdx#extremely-portable) for every commit - and validated with valgrind/sanitizers/analyzers
+- Test cases can be written in headers - the framework still registers tests only once - no duplicates
+- A binary (exe/dll) can use the test runner of another binary - so tests end up in a single registry - [**example**](https://github.com/doctest/doctest/blob/master/examples/executable_dll_and_plugin/)
+
+In addition to everything mentioned so far, doctest has some [**features**](features.mdx#other-features) (such as [**test suites**](testcases.mdx#test-suites) and [**decorators**](testcases.mdx#decorators)) that [**Catch**](https://github.com/catchorg/Catch2) does not have.
+
+**Missing features**:
+
+- Matchers and generators
+- Microbenchmarking support - nonius for [**Catch**](https://github.com/catchorg/Catch2)
+- Other small things like tags - which can be easily emulated/migrated - see below
+
+But these things (and more!) are planned in the [**roadmap**](https://github.com/doctest/doctest/issues/600)!
+
+**doctest** can be considered a very refined, lightweight, stable, and clean subset (or reimplementation) of [**Catch**](https://github.com/catchorg/Catch2), but this may change in the future as more features are added.
+
+Also check out [this table](https://github.com/martinmoene/catch-lest-other-comparison) which compares **doctest** / [**Catch**](https://github.com/catchorg/Catch2) / [**lest**](https://github.com/martinmoene/lest).
+
+A quick and easy way to migrate most Catch tests to doctest is to change the "TEST_CASE" (if tags are used) and "SECTION" macros as follows:
+
+```c++
+#include "path/to/doctest.h"
+
+#define SECTION(name) DOCTEST_SUBCASE(name)
+
+// only if tags are used: will concatenate them to the test name string literal
+#undef TEST_CASE
+#define TEST_CASE(name, tags) DOCTEST_TEST_CASE(tags " " name)
+
+// catch exposes this by default outside of its namespace
+using doctest::Approx;
+```
+
+### **How is doctest different from Google Test?** {#how-is-doctest-different-from-google-test}
+
+Here are some differences:
+
+- The main point is that doctest is the only C++ framework that can be used alongside production code (compile speed, ability to remove tests from binaries, ability to execute tests/code/both, ability to have tests in multiple shared objects and still have a single registry for all of them)
+- doctest is header-only - Google Test must be built as a separate static library and linked against
+- doctest has the concept of [**Subcases**](https://github.com/doctest/doctest/blob/master/doc/markdown/tutorial.mdx#test-cases-and-subcases), which is a much cleaner way to share setup and teardown code between tests compared to fixtures and class inheritance - Google Test is very verbose!
+- doctest compiles faster and likely runs faster (though runtime only becomes an issue when you have millions of assertions)
+- doctest assertions are thread-safe even on Windows (Google Test uses pthreads, so thread-safe assertions are only available on UNIX)
+- doctest has a simpler API overall
+
+But doctest also has some shortcomings:
+
+- Value-parameterized tests
+- Death tests (checking if calling a certain function does not simply throw an exception but causes the process to crash)
+- doctest has some integration with mocking libraries, but Google Test works perfectly with Google Mock (though doctest should theoretically work with it as well)
+
+Areas where doctest is lacking are planned for improvement in the future. There are many other smaller differences - covering all of them is impractical.
+
+### **How to get the best compile-time performance with the framework?** {#how-to-get-the-best-compile-time-performance-with-the-framework}
+
+The [**`DOCTEST_CONFIG_SUPER_FAST_ASSERTS`**](configuration.mdx#doctest_config_super_fast_asserts) configuration option yields the [**fastest possible**](benchmarks.mdx#cost-of-an-assertion-macro) compile times (up to 31-91% faster). Additionally, the expression decomposition template mechanism can be skipped by using [**binary**](assertions.mdx#binary-and-unary-asserts) assertions.
+
+There are only two minor drawbacks to using this configuration option:
+
+- No `try/catch` blocks within each assertion, so if an expression throws, the entire test case ends (but is still caught and reported).
+- When an assertion fails and a debugger is attached - the framework will break inside a doctest function, so the user has to go one level up in the call stack to see where the actual assertion is in the source code.
+
+These two things can be considered negligible and completely worth it if you are mainly dealing with expressions that are unlikely to throw exceptions and all tests usually pass (you don't need to navigate to failed assertions with a debugger attached often).
+
+### **Is doctest thread-aware?** {#is-doctest-thread-aware}
+
+Most macros/features can be used safely in a multithreaded context: [**assertion**](assertions.mdx) and [**logging**](logging.mdx) macros can be used safely from multiple threads spawned by a single test case. However, this does not mean multiple test cases can run in parallel - test cases still run serially. [**Subcases**](tutorial.mdx#test-cases-and-subcases) should also only be used in the test-running thread, and all threads spawned within a subcase should be joined before that subcase ends, and no new threads should enter a subcase while other threads containing doctest assertions are still running - not following these instructions will result in crashes ([**example here**](https://gitee.com/kumo-hub/doctest/tree/examples/master/examples/all_features/concurrency.cpp)). Also note that context logged in one thread will not be used/printed when an assertion fails in another thread - logged context is thread-local.
+
+There is also an option to run [**range**](commandline.mdx) tests from the executable - so tests can be run in parallel by invoking the process multiple times with different ranges - see [**example python script**](https://github.com/doctest/doctest/blob/master/examples/range_based_execution.py).
+
+### **Is mocking supported?** {#is-mocking-supported}
+
+**doctest** does not support mocking natively, but should integrate easily with third-party libraries such as:
+
+- [trompeloeil](https://github.com/rollbear/trompeloeil) - integration shown [here](https://github.com/rollbear/trompeloeil/blob/master/docs/CookBook.mdx#adapt_doctest)
+- [FakeIt](https://github.com/eranpeer/FakeIt) - integration is likely similar to [catch](https://github.com/eranpeer/FakeIt/tree/master/config/catch), but this has not been investigated yet
+
+By using [**logging**](logging.mdx#messages-which-can-optionally-fail-test-cases) macros such as `ADD_FAIL_AT(file, line, message)`
+
+### **Why are my tests in a static library not getting registered?** {#why-are-my-tests-in-a-static-library-not-getting-registered}
+
+This is a [**common problem in libraries with self-registering code**](https://groups.google.com/forum/#!msg/catch-forum/FV0Qo62DvgY/jxEO6c9_q3kJ) that affects all modern compilers on all platforms.
+
+The issue is that when a static library is linked into a binary (executable or dll), only the object files in the static library that define symbols needed by the binary are pulled in (this is linker/dependency optimization).
+
+One way to solve this in CMake is to use an object library instead of a static library - like this:
+
+```cmake
+add_library(with_tests OBJECT src_1.cpp src_2.cpp src_3.cpp ...)
+
+add_library(dll SHARED $<TARGET_OBJECTS:with_tests> dll_src_1.cpp ...)
+add_executable(exe $<TARGET_OBJECTS:with_tests> exe_src_1.cpp ...)
+```
+
+Thanks to [pthom](https://github.com/pthom) for the suggestion.
+
+As an alternative, I created a CMake function that forces every object file in a static library to be linked into a binary target - it's called [**`doctest_force_link_static_lib_in_target()`**](https://github.com/doctest/doctest/blob/master/examples/exe_with_static_libs/doctest_force_link_static_lib_in_target.cmake). It is non-intrusive - no source files are changed - everything is done via compiler flags for each source file. An example project using it can be found [**here**](https://github.com/doctest/doctest/blob/master/examples/exe_with_static_libs) - check the commented sections of the CMakeLists.txt file.
+
+It does not work in two cases:
+
+- The target or library uses precompiled headers - see [**this**](https://github.com/doctest/doctest/issues/21#issuecomment-247001423) issue for details
+- The target or library is an imported target (prebuilt) and not built in the current cmake tree
+
+You can also check out this repository for a different solution: [**pthom/doctest_registerlibrary**](https://github.com/pthom/doctest_registerlibrary).
+
+A compiler-specific solution for MSVC is to use the [`/OPT:NOREF`](https://msdn.microsoft.com/en-us/library/bxwfs976.aspx) linker flag (thanks to [lectem](https://github.com/Lectem) for [reporting](https://github.com/doctest/doctest/issues/106) it!). Another option is to look at [`/wholearchive`](https://docs.microsoft.com/en-us/cpp/build/reference/wholearchive-include-all-library-object-files?vie=vs-2019) for MSVC.
+
+### **Why is comparing C strings (`char*`) actually comparing pointers?** {#why-is-comparing-c-strings-char-actually-comparing-pointers}
+
+**doctest** treats `char*` as ordinary pointers by default. Using [**`DOCTEST_CONFIG_TREAT_CHAR_STAR_AS_STRING`**](configuration.mdx#doctest_config_treat_char_star_as_string) changes this behavior.
+
+### **How to write tests in header-only libraries?** {#how-to-write-tests-in-header-only-libraries}
+
+There are 2 options:
+
+- Simply include the doctest header in your header and write tests - the doctest header should be shipped with your header, and users must implement the doctest runner in one of their source files.
+- Do not include the doctest header, and guard your test cases with `#ifdef DOCTEST_LIBRARY_INCLUDED` and `#endif` - this way, if the user has included the doctest header before your header, your tests will be compiled and registered (they also have to implement the test runner somewhere).
+
+Also note that it's a good idea to add a tag to your test case names (like this: `TEST_CASE("[the_lib]testing foo")`), so users can easily filter them out with `--test-case-exclude=*the_lib*` if they wish.
+
+### **Does the framework use exceptions?** {#does-the-framework-use-exceptions}
+
+Yes - but they can be disabled - see the [**`DOCTEST_CONFIG_NO_EXCEPTIONS`**](configuration.mdx#doctest_config_no_exceptions) configuration identifier.
+
+### **Why do I get compiler errors in STL headers when including the doctest header?** {#why-do-i-get-compiler-errors-in-stl-headers-when-including-the-doctest-header}
+
+Try using the [**`DOCTEST_CONFIG_USE_STD_HEADERS`**](configuration.mdx#doctest_config_use_std_headers) configuration identifier.
+
+### **Can different versions of the framework be used within the same binary (executable/dll)?** {#can-different-versions-of-the-framework-be-used-within-the-same-binary-executabledll}
+
+Not currently. Single-header libraries like [**stb**](https://github.com/nothings/stb) offer this as an option (everything is declared static - giving it internal linkage), but this doesn't make much logical sense for **doctest** - the point is to write tests in any source file of the project and implement the test runner in only one source file.
+
+### **Why is doctest using macros?** {#why-is-doctest-using-macros}
+
+Aren't they evil and not "modern"? - Check out Phil Nash's answer to this question [**here**](http://accu.org/index.php/journals/2064) (creator of [**Catch**](https://github.com/catchorg/Catch2)).
+
+### **How to use with multiple files?** {#how-to-use-with-multiple-files}
+
+All you need to do is define [**`DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN`**](configuration.mdx#doctest_config_implement_with_main) or [**`DOCTEST_CONFIG_IMPLEMENT`**](configuration.mdx#doctest_config_implement) in only one of your source files before including the doctest header - in all other source files, you just include the header and use the framework. The difference between the two is that one provides a `main()` entry point - see [`main() entry point`](main.mdx) for more information.

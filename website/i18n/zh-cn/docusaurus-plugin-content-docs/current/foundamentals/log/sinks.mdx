@@ -1,0 +1,36 @@
+# 自定义日志接收器（Log Sinks）
+
+`turbo::LogSink` 是处理日志消息的扩展点（例如，将日志写入磁盘文件）。你可以通过 `.ToSinkOnly()` 或 `.ToSinkAlso()` [变异方法](logging.mdx#mutators) 将日志定向到指定的 Sink，也可以通过 `turbo::add_log_sink()` 注册一个 Sink 来观察所有日志（除了使用 `.ToSinkOnly()` 的日志），通过 `turbo::remove_log_sink()` 可以取消注册。例如：
+
+## 基本接口
+
+```c++
+class LinePrinterLogSink : public turbo::LogSink {
+ public:
+  LinePrinterLogSink() : fp_(fopen("/dev/lp0", "a")) {
+    PKCHECK(fp_ != nullptr) << "无法打开 /dev/lp0";
+  }
+  ~LinePrinterLogSink() {
+    fputc('\f', fp_);
+    PKCHECK(fclose(fp_) == 0) << "无法关闭 /dev/lp0";
+  }
+  void Send(const turbo::LogEntry& entry) override {
+    for (std::string_view line :
+         turbo::sr_split(entry.text_message_with_prefix(), turbo::ByChar('\n'))) {
+      // 对严重级别的日志进行重复打印以强调：
+      for (int i = static_cast<int>(turbo::LogSeverity::kInfo);
+           i <= static_cast<int>(entry.log_severity()); i++) {
+        turbo::FPrintF(fp_, "%s\r", line);
+      }
+      fputc('\n', fp_);
+    }
+  }
+
+ private:
+  FILE* const fp_;
+};
+```
+
+每条 `FATAL` 日志消息会被 `LogSink` 接收两次：一次不带堆栈信息（stacktrace），一次带堆栈信息。这个机制确保即使堆栈信息收集失败或耗时过长，仍然可以观察到一些诊断数据。`LogSink` 返回后，进程会立即终止，因此 Sink 不需要调用 `abort()`。
+
+任何在注册的 `LogSink` 内部（或由注册 Sink 调用的函数中）产生的日志，只会发送到 `stderr`，不会再发送给任何注册的 LogSink，以避免无限递归。

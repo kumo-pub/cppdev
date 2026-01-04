@@ -1,0 +1,279 @@
+# Test Configuration
+
+## Configuration {#configuration}
+**doctest** is designed to "just work" as much as possible. It also allows configuration of how it is built using a set of identifiers.
+
+Identifiers should be defined **before** including the framework header.
+
+Defining "globally" means in every source file of the binary (executable/shared object).
+
+- [**```DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN```**](#doctest_config_implement_with_main)
+- [**```DOCTEST_CONFIG_IMPLEMENT```**](#doctest_config_implement)
+- [**```DOCTEST_CONFIG_DISABLE```**](#doctest_config_disable)
+- [**```DOCTEST_CONFIG_IMPLEMENTATION_IN_DLL```**](#doctest_config_implementation_in_dll)
+- [**```DOCTEST_CONFIG_NO_SHORT_MACRO_NAMES```**](#doctest_config_no_short_macro_names)
+- [**```DOCTEST_CONFIG_TREAT_CHAR_STAR_AS_STRING```**](#doctest_config_treat_char_star_as_string)
+- [**```DOCTEST_CONFIG_REQUIRE_STRINGIFICATION_FOR_ALL_USED_TYPES```**](#doctest_config_require_stringification_for_all_used_types)
+- [**```DOCTEST_CONFIG_DOUBLE_STRINGIFY```**](#doctest_config_double_stringify)
+- [**```DOCTEST_CONFIG_SUPER_FAST_ASSERTS```**](#doctest_config_super_fast_asserts)
+- [**```DOCTEST_CONFIG_USE_STD_HEADERS```**](#doctest_config_use_std_headers)
+- [**```DOCTEST_CONFIG_VOID_CAST_EXPRESSIONS```**](#doctest_config_void_cast_expressions)
+- [**```DOCTEST_CONFIG_NO_COMPARISON_WARNING_SUPPRESSION```**](#doctest_config_no_comparison_warning_suppression)
+- [**```DOCTEST_CONFIG_OPTIONS_PREFIX```**](#doctest_config_options_prefix)
+- [**```DOCTEST_CONFIG_NO_UNPREFIXED_OPTIONS```**](#doctest_config_no_unprefixed_options)
+- [**```DOCTEST_CONFIG_NO_TRY_CATCH_IN_ASSERTS```**](#doctest_config_no_try_catch_in_asserts)
+- [**```DOCTEST_CONFIG_NO_EXCEPTIONS```**](#doctest_config_no_exceptions)
+- [**```DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS```**](#doctest_config_no_exceptions_but_with_all_asserts)
+- [**```DOCTEST_CONFIG_ASSERTION_PARAMETERS_BY_VALUE```**](#doctest_config_assertion_parameters_by_value)
+- [**```DOCTEST_CONFIG_COLORS_NONE```**](#doctest_config_colors_none)
+- [**```DOCTEST_CONFIG_COLORS_WINDOWS```**](#doctest_config_colors_windows)
+- [**```DOCTEST_CONFIG_COLORS_ANSI```**](#doctest_config_colors_ansi)
+- [**```DOCTEST_CONFIG_WINDOWS_SEH```**](#doctest_config_windows_seh)
+- [**```DOCTEST_CONFIG_NO_WINDOWS_SEH```**](#doctest_config_no_windows_seh)
+- [**```DOCTEST_CONFIG_POSIX_SIGNALS```**](#doctest_config_posix_signals)
+- [**```DOCTEST_CONFIG_NO_POSIX_SIGNALS```**](#doctest_config_no_posix_signals)
+- [**```DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS```**](#doctest_config_include_type_traits)
+- [**```DOCTEST_CONFIG_NO_MULTITHREADING```**](#doctest_config_no_multithreading)
+- [**```DOCTEST_CONFIG_NO_MULTI_LANE_ATOMICS```**](#doctest_config_no_multi_lane_atomics)
+- [**```DOCTEST_CONFIG_ASSERTS_RETURN_VALUES```**](#doctest_config_asserts_return_values)
+- [**```DOCTEST_CONFIG_EVALUATE_ASSERTS_EVEN_WHEN_DISABLED```**](#doctest_config_evaluate_asserts_even_when_disabled)
+- [**```DOCTEST_CONFIG_NO_CONTRADICTING_INLINE```**](#doctest_config_no_contradicting_inline)
+- [**```DOCTEST_CONFIG_NO_INCLUDE_IOSTREAM```**](#doctest_config_no_include_iostream)
+- [**```DOCTEST_CONFIG_HANDLE_EXCEPTION```**](#doctest_config_handle_exception)
+
+For most users, the only required configuration is to tell **doctest** which source file should host all the implementation code:
+
+### **```DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN```**
+```c++
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest.h"
+```
+This should be defined **only** in the source file that implements the library. It also creates a `main()` entry point.
+
+### **```DOCTEST_CONFIG_IMPLEMENT```**
+This identifier should be used if the client wants to [**provide a ```main()``` function**](main.mdx) (either to set options with certain values in code, or to integrate the framework into their existing project codebase).
+
+This should be defined **only** in the source file that implements the library.
+
+### **```DOCTEST_CONFIG_DISABLE```**
+One of the most important configuration options – all test-related content is removed from the binary – including most of the framework implementation and every test case written anywhere! This is one of **doctest**'s most unique features.
+
+This should be defined **globally**.
+
+### **```DOCTEST_CONFIG_IMPLEMENTATION_IN_DLL```**
+This affects doctest's public interface – all forward declarations needed to write tests are converted to import symbols. This way, the test runner does not have to be implemented in the binary (executable/shared object) and can be reused from another binary that builds and exports it.
+
+To export the test runner from a binary, simply use [**```DOCTEST_CONFIG_IMPLEMENTATION_IN_DLL```**](#doctest_config_implementation_in_dll) and [**```DOCTEST_CONFIG_IMPLEMENT```**](#doctest_config_implement)
+(or [**```DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN```**](#doctest_config_implement_with_main)) – but other binaries must link against the executable the test runner is implemented into for any source files. Note that
+this identifier should **not** be defined in other source files of the binary that exports the doctest test runner – otherwise linker conflicts will occur – having the same symbols imported and exported in the same binary.
+Check out the [**example**](https://github.com/doctest/doctest/blob/master/examples/executable_dll_and_plugin/) – it shows how to implement the test runner in a DLL (and have tests even in dynamically loaded plugins).
+
+This should be defined **globally** in binaries that import the symbols.  
+This should be defined **only** in the source file that implements the library for the binary that exports the test runner.
+
+### **```DOCTEST_CONFIG_NO_SHORT_MACRO_NAMES```**
+This removes all macros from **doctest** that do not have the **```DOCTEST_```** prefix – such as **```CHECK```**, **```TEST_CASE```**, and **```SUBCASE```**. Only the full macro names will then be available – **```DOCTEST_CHECK```**, **```DOCTEST_TEST_CASE```**, and **```DOCTEST_SUBCASE```**. Users are free to make their own short versions of these macros – [**example**](https://github.com/doctest/doctest/blob/master/examples/all_features/alternative_macros.cpp).
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_TREAT_CHAR_STAR_AS_STRING```**
+By default, `char*` is treated as a pointer. With this option, comparisons of `char*` pointers will switch to using `strcmp()` for comparison, and the string will be printed instead of the pointer value when stringified.
+
+This should be defined **globally**.
+
+### **```DOCTEST_CONFIG_REQUIRE_STRINGIFICATION_FOR_ALL_USED_TYPES```**
+By default, if stringification does not work for a type, it is simply printed as `{?}`. Enabling this flag will stop compilation whenever a type is used in an assertion without stringification provided.
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_DOUBLE_STRINGIFY```**
+If you define your own `toString` function that returns something different from `doctest::String` but is still stringifiable, you can enable this flag to stringify the result of the internal stringification call again.
+
+You can also define `DOCTEST_STRINGIFY` yourself to override doctest's stringification behavior.
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_SUPER_FAST_ASSERTS```**
+This configuration option makes assertion macros (except those handling exceptions) compile [**faster**](benchmarks.mdx#cost-of-an-assertion-macro)! (31-91% – depending on the type – [**normal**](assertions.mdx#expression-decompositing-asserts) or [**binary**](assertions.mdx#binary-and-unary-asserts))
+
+Each assertion becomes a function call – the only downside is: if an assertion fails and a debugger is attached – when it breaks, it will be inside the internal function – the user will have to go one level up in the call stack to see the actual assertion.
+
+It also implies [**```DOCTEST_CONFIG_NO_TRY_CATCH_IN_ASSERTS```**](#doctest_config_no_try_catch_in_asserts) (so exceptions thrown during assertion evaluation are not caught by the assertion itself but by the test framework – meaning the test case is aborted immediately).
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_USE_STD_HEADERS```**
+By default, the library provides forward declarations of ```std::ostream``` to support the ```operator<<``` [**stringification**](stringification.mdx) mechanism
+(also for ```std::tuple<>``` and ```std::nullptr_t```). The standard forbids this (although it works on all tested compilers). However, if the user wants 100% compliance with the standard, this configuration option can be used to force inclusion of the relevant standard headers.
+
+Additionally, STL implementations for certain niche compilers may define them differently – then compilation errors will appear in the STL headers, and using this option should resolve the issue.
+
+This should be defined **globally**.
+
+### **```DOCTEST_CONFIG_VOID_CAST_EXPRESSIONS```**
+This affects [assertions that handle exceptions](assertions.mdx#exceptions) – expressions are cast to void to avoid issues such as using functions with the ```[[nodiscard]]``` attribute whose results are not checked.
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_NO_COMPARISON_WARNING_SUPPRESSION```**
+By default, the library suppresses warnings about comparing signed and unsigned types, etc.
+
+- g++/clang ```-Wsign-conversion```
+- g++/clang ```-Wsign-compare```
+- MSVC ``C4389`` `operator`: signed/unsigned mismatch
+- MSVC ``C4018`` `expression`: signed/unsigned mismatch
+
+You can check [**this**](https://github.com/doctest/doctest/issues/16#issuecomment-246803303) issue to better understand why I suppress these warnings by default.
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_OPTIONS_PREFIX```**
+Defining this as a string will change the prefix for [**command line**](commandline.mdx) options to use the given prefix instead of the default ``dt-`` prefix. This is useful for integrating the test framework into a client codebase where a command option prefix like ``selftest-`` might be clearer to users.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_NO_UNPREFIXED_OPTIONS```**
+This disables the short versions of [**command line**](commandline.mdx) options, and only versions with the ```--dt-``` prefix will be parsed by **doctest** – this is useful for easy interoperability with client command-line option handling when the test framework is integrated into a client codebase – so no conflicts occur and users can exclude everything starting with ``--dt-`` from their option parsing.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_NO_TRY_CATCH_IN_ASSERTS```**
+This removes all "try"/"catch" sections from:
+- [Normal assertions](assertions.mdx#expression-decompositing-asserts)
+- [Binary and unary assertions](assertions.mdx#binary-and-unary-asserts)
+
+Thus, exceptions thrown while evaluating expressions in assertions will terminate the current test case.
+
+This can be used to save some compilation time, but for a bigger impact, check [**```DOCTEST_CONFIG_SUPER_FAST_ASSERTS```**](configuration.mdx#doctest_config_super_fast_asserts).
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_NO_EXCEPTIONS```**
+This removes all usage of exceptions from the framework – it is also auto-detected if the compiler has exceptions disabled (e.g., ``-fno-exceptions`` for GCC/Clang).
+
+What changes:
+- Assertions no longer evaluate expressions in "try"/"catch" sections
+- ```REQUIRE``` macros disappear (are undefined)
+- [Exception macros](assertions.mdx#exceptions) disappear (are undefined)
+- The ```abort-after``` option will not work fully because exceptions are used to terminate test cases
+
+`REQUIRE`-family assertions use exceptions to terminate the current test case when they fail. Exceptions are used instead of a simple ``return;`` because assertions can be used not only in test cases but also in functions called by test cases.
+
+There are also some [**logging macros**](logging.mdx#messages-which-can-optionally-fail-test-cases) that act similarly to ```REQUIRE``` assertions (terminate the test case) – like `FAIL()` – start working differently – like `FAIL_CHECK()`.
+
+[**```DOCTEST_CONFIG_NO_EXCEPTIONS```**](#doctest_config_no_exceptions) implies [**```DOCTEST_CONFIG_NO_TRY_CATCH_IN_ASSERTS```**](#doctest_config_no_try_catch_in_asserts)
+
+If you wish to use assertions that handle exceptions and only sometimes build without exceptions – check the [**```DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS```**](#doctest_config_no_exceptions_but_with_all_asserts) configuration option.
+
+This should be defined **globally**.
+
+### **```DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS```**
+When building without exceptions (see [**```DOCTEST_CONFIG_NO_EXCEPTIONS```**](#doctest_config_no_exceptions)) both ```REQUIRE``` assertions and assertions about handling exceptions disappear.
+
+However, if you want your code to use these assertions and only build without exceptions sometimes – then using this configuration will help. The effects of using it are as follows:
+- ```REQUIRE``` assertions do not disappear – but they act like ```CHECK``` assertions – when one of them fails, the entire test case is marked as failed but does not exit immediately
+- [Assertions handling exceptions](assertions.mdx#exceptions) become no-ops (instead of being completely undefined)
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_ASSERTION_PARAMETERS_BY_VALUE```**
+This option forces all doctest assertions to copy the given expressions by value instead of binding them to const references. This may help avoid ODR (One Definition Rule) usage of static constants (which can cause linker errors with g++/clang):
+
+```c++
+template<typename T> struct type_traits { static const bool value = false; };
+
+// unless DOCTEST_CONFIG_ASSERTION_PARAMETERS_BY_VALUE is defined the following assertion
+// will lead to a linker error if type_traits<int>::value isn't defined in a translation unit
+CHECK(type_traits<int>::value == false);
+```
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_COLORS_NONE```**
+This removes support for colors in the framework's console output.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_COLORS_WINDOWS```**
+This forces support for colors in console output to use Windows APIs and headers.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_COLORS_ANSI```**
+This forces support for colors in console output to use ANSI escape codes.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_WINDOWS_SEH```**
+This enables SEH (Structured Exception Handling) handling on Windows. Currently enabled only when compiling with MSVC because some versions of MinGW lack the necessary Win32 API support. Users can choose to enable this explicitly – it is known to work with the MinGW-w64 project.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_NO_WINDOWS_SEH```**
+This can be used to disable [**```DOCTEST_CONFIG_WINDOWS_SEH```**](#doctest_config_windows_seh) when the library auto-selects it.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_POSIX_SIGNALS```**
+This allows the use of signals to handle crashes under UNIX. Enabled by default.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_NO_POSIX_SIGNALS```**
+This can be used to disable **```DOCTEST_CONFIG_POSIX_SIGNALS```** when the library auto-selects it.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS```**
+This can be used to include the ```<type_traits>``` C++11 header. This in turn will enable the ```Approx``` helper to work with strongly-typed definitions of ```double``` – check [this](https://github.com/doctest/doctest/issues/62) or [this](https://github.com/doctest/doctest/issues/85) issue for more details.
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_NO_MULTITHREADING```**
+This can be used to disable all multithreading support.  
+Speeds up single-threaded applications.  
+Includes [**```DOCTEST_CONFIG_NO_MULTI_LANE_ATOMICS```**](#doctest_config_no_multi_lane_atomics).
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_NO_MULTI_LANE_ATOMICS```**
+This can be used to disable multi-lane atomics. Multi-lane atomics can speed up highly parallel usage of assertion statements but have a small overhead for single-threaded applications.
+
+This should be defined **only** in the source file that implements the library (relevant only there).
+
+### **```DOCTEST_CONFIG_ASSERTS_RETURN_VALUES```**
+Makes all assertion macros return a boolean value reporting whether the assertion succeeded. This can be used, for example, to perform `nullptr` checks so that the test case is not terminated on failure.
+
+Example:
+```c++
+if (CHECK(somePtr != nullptr))
+    CHECK(somePtr->someMethod() == 42);
+```
+
+This has a slight negative impact on performance and disables certain features inside assertions (such as "co_return").
+
+When [**```DOCTEST_CONFIG_DISABLE```**](#doctest_config_disable) is defined, all macros return ```false``` by default.
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_EVALUATE_ASSERTS_EVEN_WHEN_DISABLED```**
+When both [**```DOCTEST_CONFIG_ASSERTS_RETURN_VALUES```**](#doctest_config_asserts_return_values) and [**```DOCTEST_CONFIG_DISABLE```**](#doctest_config_disable) are defined, this macro will
+cause the conditions in assertions to be evaluated correctly (instead of returning `false`), even though all overhead and features of doctest are removed. This is useful when using assertions in if statements in production code to keep evaluating the condition.
+
+Since all `THROWS_WITH` assertions rely on doctest features (stringification) that are unavailable when [**```DOCTEST_CONFIG_DISABLE```**](#doctest_config_disable) is defined, they will still return ``false`` unconditionally.
+
+This can be defined either globally or only in specific source files.
+
+### **```DOCTEST_CONFIG_NO_CONTRADICTING_INLINE```**
+Certain functions in doctest are marked with `inline` and compiler-specific no-inline attributes. This is done because they need to be weak symbols (inline) so they can be defined in multiple compilation units, but they should not actually be inlined as a compiler optimization because this reduces compilation speed.
+
+However, this is known to cause some hard-to-suppress warnings with some compilers. This flag disables the use of no-inline attributes to suppress warnings if needed for your build.
+
+### **```DOCTEST_CONFIG_NO_INCLUDE_IOSTREAM```**
+This option disables any inclusion of `<iostream>`, `std::cout`, and `std::cerr`. This means the "cout" context field must be provided. If
+`DOCTEST_CONFIG_NO_EXCEPTIONS` is defined, unhandled exceptions will not be printed to `std::cerr`.
+[```DOCTEST_CONFIG_HANDLE_EXCEPTION```](#doctest_config_handle_exception) can be defined to handle this case.
+
+### **```DOCTEST_CONFIG_HANDLE_EXCEPTION```**
+This macro function can be defined to handle exceptions instead of just printing them
+to `std::cerr`.

@@ -1,0 +1,159 @@
+---
+title: RocksDB Backup and Restore
+---
+
+# RocksDB Backup and Restore
+
+This document explains how to perform backup and restore in RocksDB, including **snapshot-based** and **file-based (checkpoint)** approaches, their use cases, and examples for syncing replicas.
+
+---
+
+## 1. Overview of Backup Methods
+
+RocksDB provides two primary backup methods:
+
+1. **Snapshot-based Backup**
+   - Uses RocksDB's internal **SST snapshots**.
+   - Captures a consistent point-in-time view of the database.
+   - Typically implemented by traversing column families and exporting SSTs.
+   - Useful for replication, incremental backup, and fast restores.
+
+2. **File-based Backup (Checkpoint)**
+   - Uses **RocksDB checkpoint** API to create a copy of the database files.
+   - Produces a consistent **directory snapshot** of the entire database.
+   - Easier to use than manual SST export, but typically larger and less flexible for selective restore.
+
+---
+
+## 2. File-based Backup Using Checkpoints
+
+RocksDB provides `rocksdb::Checkpoint` for creating backups at the file level.
+
+### 2.1 Creating a Checkpoint
+
+```cpp
+#include <rocksdb/checkpoint.h>
+
+rocksdb::Checkpoint* checkpoint;
+rocksdb::Status s = rocksdb::Checkpoint::Create(db, &checkpoint);
+if (!s.ok()) {
+    // handle error
+}
+
+s = checkpoint->CreateCheckpoint("/path/to/backup_dir");
+if (!s.ok()) {
+    // handle error
+}
+
+delete checkpoint;
+````
+
+* Produces a **directory** containing all database files, including:
+
+* `MANIFEST`
+* `LOG` files
+* All SST files for all column families
+* Ensures **point-in-time consistency**.
+
+### 2.2 Restoring from Checkpoint
+
+* Copy the checkpoint directory to a new location.
+* Open a new RocksDB instance using the checkpoint path:
+
+```cpp
+rocksdb::DB* new_db;
+rocksdb::Options options;
+s = rocksdb::DB::Open(options, "/path/to/backup_dir", &new_db);
+```
+
+* All CFs and data are restored exactly as they were at checkpoint creation.
+
+---
+
+## 3. Backup vs. Restore with Snapshots
+
+### 3.1 Creating Backup via Snapshots
+
+* As shown previously, snapshot backup involves exporting SSTs per column family.
+* Useful for **incremental backup** and **replication**.
+* Can selectively backup specific CFs.
+
+### 3.2 Restoring Backup via Snapshots
+
+```cpp
+for (const auto &cf_name : snapshot_order) {
+    auto cf_handle = db->GetColumnFamilyHandle(cf_name);
+    db->IngestExternalFile(cf_handle, sst_files_for_cf[cf_name], ingest_options);
+}
+```
+
+* Must respect **original SST ingestion order**.
+* Can merge multiple SST backups into an existing DB.
+
+---
+
+## 4. Catching Up a Replica Using Snapshots
+
+For replication or secondary nodes catching up:
+
+1. Take a snapshot of the primary node (or upstream DB).
+2. Transfer the SSTs to the replica node.
+3. Ingest SSTs in the same column family order.
+4. Resume normal replication using WALs or transaction logs.
+
+```cpp
+// Example: applying snapshot to a follower
+for (const auto &cf_name : snapshot_order) {
+    auto cf_handle = follower_db->GetColumnFamilyHandle(cf_name);
+    follower_db->IngestExternalFile(cf_handle, sst_files_for_cf[cf_name], ingest_options);
+}
+```
+
+* Ensures the replica has **exactly the same state** as the snapshot point.
+* Useful for **fast bootstrap** or **catching up lagging replicas**.
+
+---
+
+## 5. Comparison of Backup Methods
+
+| Feature             | Snapshot Backup                                    | File-based Checkpoint                     |
+| ------------------- | -------------------------------------------------- | ----------------------------------------- |
+| Granularity         | Column-family level, can be selective              | Whole DB only                             |
+| Size                | Smaller if incremental                             | Typically larger                          |
+| Restore flexibility | Can merge into existing DB                         | Must restore whole DB                     |
+| Consistency         | Point-in-time per SST                              | Atomic point-in-time for entire DB        |
+| Use cases           | Replication, incremental backup, selective restore | Full backup, disaster recovery, migration |
+| Complexity          | Higher, requires tracking SSTs and CF order        | Lower, just copy directory                |
+
+---
+
+## 6. Best Practices
+
+1. **Use snapshots for:**
+
+* Replication
+* Incremental backup
+* Selective CF restore
+
+2. **Use checkpoints for:**
+
+* Full database backup
+* Disaster recovery
+* Moving or migrating the database
+
+3. **Tracking backup metadata**
+
+* For snapshots, maintain:
+
+* CF names
+* SST file list
+* Ingestion order
+
+4. **Apply backups in order**
+
+* Critical for consistency, especially when restoring multiple CFs.
+
+5. **Verify backup**
+
+* Always use iterators to check data integrity after restore.
+

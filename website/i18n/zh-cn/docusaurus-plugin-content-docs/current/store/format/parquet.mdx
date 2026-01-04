@@ -1,0 +1,95 @@
+# Parquet格式概述
+**Apache Parquet** 是一款应用广泛的开源列式存储文件格式，专为高效数据分析场景设计。该格式最初为适配Hadoop生态系统而生，现已成为跨多平台分析型工作负载的事实标准。
+
+官方文档：
+* Apache Parquet项目：[https://parquet.apache.org/](https://parquet.apache.org/)
+* Parquet格式规范：[https://parquet.apache.org/documentation/latest/](https://parquet.apache.org/documentation/latest/)
+* Parquet GitHub仓库：[https://github.com/apache/parquet-format](https://github.com/apache/parquet-format)
+
+---
+
+## 1. 核心特性
+
+### 列式存储
+* Parquet按列而非按行存储数据。
+* 支持仅读取所需列，减少分析类查询的I/O开销。
+
+### 支持Schema的元数据
+* 每个Parquet文件均包含自身的Schema与元数据，可适配复杂嵌套类型（列表、结构体、映射）。
+* Schema信息支持谓词下推与更高效的数据裁剪。
+
+### 按列编码与压缩
+* 每列可独立使用不同编码/压缩方案（如Snappy、Gzip、Brotli、ZSTD）。
+* 相较于行式压缩，列式压缩在分析型工作负载中效率更高。
+
+### 可分片文件
+* 大型Parquet文件可拆分至多个处理任务中，支持并行读取。
+
+### 跨语言互操作性
+Parquet兼容多技术生态，各语言对应的API/库如下：
+
+| 语言 | API/库 |
+| ---- | ------ |
+| Java | Apache Parquet（原生） |
+| C++ | Apache Arrow / Parquet C++ |
+| Python | pyarrow、fastparquet |
+| Go | parquet-go |
+| Rust | parquet-rs |
+
+---
+
+## 2. 适用场景
+
+### 分析型工作负载
+* 大规模数据集的聚合计算、报表生成、BI查询
+* 时序数据分析与OLAP查询
+
+### 云数据湖
+* 作为AWS S3、GCS、Azure Blob等对象存储中数据的首选格式
+
+### 数据交换
+* 原生适配Spark、Presto、Hive、Trino、Flink等计算引擎
+
+### 批处理
+* 最适用于批处理或追加密集型工作负载，不适合随机KV更新场景
+
+---
+
+## 3. 在Kumo中的集成
+在Kumo Stack中，Parquet通常用于：
+* 大规模结构化数据集存储
+* 批量导出/导入流水线
+* 分析结果持久化
+
+集成注意事项：
+* 遵循Schema进化最佳实践——谨慎添加列或可选字段
+* 优先使用较大的Parquet文件（≥256 MB），降低运维开销
+* 利用谓词下推减少数据读取量
+
+---
+
+## 4. 性能说明
+
+### I/O效率
+* 仅读取指定列可显著降低磁盘I/O开销
+
+### 压缩表现
+* 列式压缩的压缩比比行式格式更高
+* 压缩算法选择需平衡CPU开销与存储节省效果
+
+### 并行读取
+* 大文件支持分布式处理系统并行读取不同的行组
+
+### 示例工作流
+* ETL流水线按日写入Parquet分区文件
+* 分析引擎仅读取相关列数据
+* 谓词下推过滤行数据，无需扫描全文件
+
+---
+
+## 5. 参考链接
+* Apache Parquet官方网站：[https://parquet.apache.org/](https://parquet.apache.org/)
+* Parquet文档中心：[https://parquet.apache.org/documentation/latest/](https://parquet.apache.org/documentation/latest/)
+* GitHub仓库：[https://github.com/apache/parquet-format](https://github.com/apache/parquet-format)
+* Parquet与Spark集成：[https://spark.apache.org/docs/latest/sql-data-sources-parquet.html](https://spark.apache.org/docs/latest/sql-data-sources-parquet.html)
+* Parquet与Python（pyarrow）集成：[https://arrow.apache.org/docs/python/parquet.html](https://arrow.apache.org/docs/python/parquet.html)

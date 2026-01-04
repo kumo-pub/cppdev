@@ -1,0 +1,63 @@
+---
+title: RocksDB Types
+---
+
+# RocksDB Types and Usage Scenarios
+
+RocksDB provides multiple **engine types** to support different workloads.
+Choosing the right type is critical to achieving optimal performance for your application.
+
+---
+
+## 1. RocksDB Engine Types {#types}
+
+RocksDB mainly offers the following types:
+
+| Type | Description | Typical Scenario |
+|------|------------|----------------|
+| **Default DB** | Standard key-value store with LSM (Log-Structured Merge Tree) engine | General-purpose storage, small to medium datasets, embedded KV |
+| **TransactionDB** | Default DB with ACID transactions, supports atomic commits | Control-plane metadata, multi-key atomic updates, small transactional datasets |
+| **OptimisticTransactionDB** | Lightweight transaction engine using optimistic concurrency | High-read, low-write scenarios, concurrent readers, small transactional workloads |
+| **PlainTable / Universal / ColumnFamily** | Specialized storage formats or logical partitioning | High read amplification workloads, columnar storage, large datasets, complex query patterns |
+
+---
+
+## 2. Typical Usage Scenarios {#scenarios}
+
+### 2.1 Default DB
+
+- Suitable for **general-purpose KV storage**
+- No transactional guarantees
+- Recommended for **high throughput writes** and **bulk storage of structured data**
+
+### 2.2 TransactionDB
+
+- Provides **full ACID transactions**
+- Useful for **metadata, configuration, and control-plane KV**
+- Supports **atomic multi-key updates**
+- Typical in Kumo when you need **strong consistency** guarantees
+
+### 2.3 OptimisticTransactionDB
+
+- Optimized for **concurrent read-heavy workloads**
+- Uses **optimistic concurrency control**
+- Recommended for **small transactional updates** where conflicts are rare
+
+### 2.4 Other types (PlainTable / ColumnFamily / Universal)
+
+- Used in **specialized performance scenarios**
+- ColumnFamily allows logical separation of key spaces
+- PlainTable can reduce read amplification for **very large datasets**
+- Usually for **big-data analytics or log storage scenarios**
+
+---
+
+## Summary
+
+- Selecting the correct RocksDB type is **key for performance and reliability**
+- For **general KV** → Default DB
+- For **transactional control-plane KV** → TransactionDB / OptimisticTransactionDB
+- For **high-performance analytical or specialized workloads** → ColumnFamily / PlainTable
+
+Next sections will cover **configuration, backup, and snapshot strategies**, with practical examples.
+

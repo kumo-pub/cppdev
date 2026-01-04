@@ -1,0 +1,153 @@
+# RocksDB 配置与初始化
+RocksDB 是一款高性能键值存储系统，在 Kumo 中被广泛用于存储**本地元数据、控制平面状态及小型结构化数据**。本文档详细阐述其**配置模块**、**原生初始化流程**、**列族设计考量**，以及**核心配置项的影响**。
+
+---
+
+## 1. 配置概述 {#config-overview}
+RocksDB 提供多层级配置体系，理解各层级配置是保障性能可预期的关键：
+
+| 层级 | 作用域 | 描述 |
+|------|--------|------|
+| **数据库选项（DB Options）** | 整个数据库 | 全局配置：并行度、后台任务、预写日志（WAL）行为、直接I/O、统计信息等。 |
+| **列族选项（ColumnFamilyOptions, CF Options）** | 每个列族 | 压缩策略、写缓冲区大小、合并算子、数据压缩方式、布隆过滤器、Blob 文件相关配置。 |
+| **表选项 / 基于块的表选项（TableOptions / BlockBasedTableOptions）** | 每个列族、每个表 | 排序字符串表（SSTable）布局：块大小、缓存策略、索引/过滤器类型、分区索引过滤器。 |
+| **写入选项（WriteOptions）** | 每次写入操作 | WAL 同步策略、异步刷盘、数据持久性保障。 |
+| **读取选项（ReadOptions）** | 每次读取操作 | 快照、缓存使用、前缀查找。 |
+| **事务数据库选项（TransactionDBOptions）** | 启用事务的数据库 | 锁超时时间、自定义互斥锁工厂。 |
+
+典型调优目标及对应配置项：
+- **写入吞吐量** → `WriteBufferSize`、`MaxWriteBufferNumber`、`Level0FileNumCompactionTrigger`
+- **读取延迟** → `BlockCache`、`FilterPolicy`、`BloomFilter`、`PartitionedIndexFilters`
+- **磁盘占用** → `Compression`、`TargetFileSizeBase`、`MaxBytesForLevelBase`
+- **事务保障** → `TransactionDBOptions`、锁超时时间
+
+---
+
+## 2. RocksDB 原生初始化流程 {#native-init}
+初始化 RocksDB 实例的标准流程如下：
+
+### 2.1 配置数据库选项
+```cpp
+#include <rocksdb/db.h>
+#include <rocksdb/options.h>
+
+rocksdb::Options db_options;
+db_options.create_if_missing = true;
+db_options.IncreaseParallelism(8);          // 后台线程数
+db_options.max_background_compactions = 8;  // 压缩线程数
+db_options.use_direct_reads = false;
+db_options.use_direct_io_for_flush_and_compaction = false;
+db_options.statistics = rocksdb::CreateDBStatistics();
+```
+
+### 2.2 配置列族选项
+每个列族可配置专属选项：
+```cpp
+rocksdb::ColumnFamilyOptions cf_options;
+cf_options.OptimizeLevelStyleCompaction();
+cf_options.write_buffer_size = 128 * 1024 * 1024;  // 128MB 写缓冲区大小
+cf_options.max_write_buffer_number = 4;
+cf_options.min_write_buffer_number_to_merge = 2;
+cf_options.level0_file_num_compaction_trigger = 4;
+cf_options.compression = rocksdb::kLZ4Compression;
+```
+
+### 2.3 配置表选项
+```cpp
+rocksdb::BlockBasedTableOptions table_options;
+table_options.block_size = 64 * 1024; // 64 KB 数据块大小
+table_options.block_cache = rocksdb::NewLRUCache(8 * 1024 * 1024 * 1024ULL); // 8GB 块缓存
+table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+```
+
+将表选项绑定至列族：
+```cpp
+cf_options.table_factory.reset(
+    rocksdb::NewBlockBasedTableFactory(table_options)
+);
+```
+
+### 2.4 打开数据库
+```cpp
+rocksdb::DB* db;
+std::vector<std::string> cf_names = {"default", "meta", "data"};
+std::vector<rocksdb::ColumnFamilyDescriptor> cf_descs;
+
+for (const auto& name : cf_names) {
+    cf_descs.emplace_back(name, cf_options);
+}
+
+std::vector<rocksdb::ColumnFamilyHandle*> cf_handles;
+rocksdb::Status s = rocksdb::DB::Open(db_options, "/data/kumo/rocksdb", cf_descs, &cf_handles, &db);
+if (!s.ok()) {
+    // 处理错误
+}
+```
+
+### 2.5 配置读写选项
+```cpp
+rocksdb::WriteOptions write_options;
+write_options.sync = true; // 确保WAL数据持久性
+
+rocksdb::ReadOptions read_options;
+read_options.fill_cache = true; // 启用块缓存
+```
+
+### 2.6 事务型数据库（TransactionDB）初始化（可选）
+```cpp
+#include <rocksdb/utilities/transaction_db.h>
+
+rocksdb::TransactionDBOptions txn_options;
+txn_options.transaction_lock_timeout = 20000; // 锁超时时间（毫秒）
+txn_options.default_lock_timeout = 30000;     // 默认锁超时时间（毫秒）
+
+rocksdb::TransactionDB* txn_db;
+rocksdb::Status s_txn = rocksdb::TransactionDB::Open(
+    db_options, txn_options, "/data/kumo/rocksdb_txn", &txn_db
+);
+```
+
+---
+
+## 3. 列族设计考量 {#column-family}
+* **默认列族（Default CF）**：为必选列族，禁止删除或重命名。
+* **多列族设计**：可有效分离**元数据**、**OLAP 数据**和**高写入量数据**。
+* **选项隔离性**：每个列族可配置独立的压缩策略、数据压缩方式及表选项。
+* **列族句柄**：必须正确关闭，避免内存泄漏。
+
+```cpp
+for (auto handle : cf_handles) {
+    db->DestroyColumnFamilyHandle(handle);
+}
+delete db;
+```
+
+> 提示：务必在**执行任何写入操作前**初始化所有列族，避免运行时错误或配置不一致问题。
+
+---
+
+## 4. 配置项影响与最佳实践 {#config-impact}
+* `WriteOptions.sync = true` 可保障数据持久性，但会降低写入吞吐量。
+* **块缓存大小**需平衡内存占用与读取延迟。
+* **写缓冲区大小与数量**决定内存表（Memtable）刷盘频率及压缩负载。
+* **分级别数据压缩**影响磁盘占用空间与读取放大效应。
+* **Level0 压缩触发阈值**可避免写入峰值时出现性能卡顿。
+* **TransactionDB 锁超时时间**需根据工作负载并发度调优。
+
+### 核心指导原则：
+* 避免生成过多小尺寸 SST 文件 → 调优 `Level0FileNumCompactionTrigger` 和 `TargetFileSizeBase`。
+* 利用**列族分离**机制隔离不同类型工作负载。
+* 针对**OLAP 密集型工作负载**，可考虑禁用布隆过滤器以降低 CPU 开销。
+* 监控**待压缩数据字节数（pending compaction bytes）**，防止写入卡顿。
+
+---
+
+## 5. 总结 {#summary}
+RocksDB 初始化流程包含以下核心步骤：
+1. 配置**数据库级选项**（并行度、WAL、直接I/O）；
+2. 配置**列族选项**（压缩策略、写缓冲区、数据压缩）；
+3. 配置**表选项**（块大小、缓存、布隆过滤器）；
+4. 打开数据库并初始化所有所需**列族**；
+5. （可选）启用**TransactionDB** 以支持多键事务语义。
+
+在 Kumo 的键值存储场景中，需精细调优上述配置项，才能实现**高吞吐量、可预期延迟及高效资源利用**的目标。

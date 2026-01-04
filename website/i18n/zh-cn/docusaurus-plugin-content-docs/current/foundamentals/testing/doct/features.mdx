@@ -1,0 +1,80 @@
+# Features
+
+## Key Features and Design Goals
+
+**doctest** was designed from the ground up to be as **lightweight** and **non-intrusive** as possible. These key characteristics should be preserved.
+
+## Transparent Independence:
+
+- All test-related content can be removed from the binary executable by defining the [**`DOCTEST_CONFIG_DISABLE`**](configuration.mdx#doctest_config_disable) identifier
+- Very small and easy to integrate - single-header
+- **Extremely low** compile-time footprint - [**approximately 25ms**](benchmarks.mdx#cost-of-including-the-header) compile-time overhead for including the header in a file
+- [**Fastest possible**](benchmarks.mdx#cost-of-an-assertion-macro) assertion macros - 50k assertions can be compiled in 30 seconds (or even less than 10 seconds)
+- Does not pull in any headers when included (except in the translation unit that implements the library)
+- Everything is in the `doctest` namespace (implementation details are in the nested `detail` namespace)
+- All macros have prefixes - some macros also have unprefixed versions by default, but this is optional - see [**configuration**](configuration.mdx)
+- Zero warnings even with the most aggressive flags (on all tested compilers!!!)
+  - `-Weverything -pedantic` for **Clang**
+  - `-Wall -Wextra -pedantic` and **`>> over 35 <<`** other warnings **not** covered by these flags for **GCC** - see [**here**](https://github.com/doctest/doctest/blob/master/scripts/cmake/common.cmake#L84)
+  - `/Wall` for **MSVC**
+- Unrecognized [**command line**](commandline.mdx) options do not throw errors, and prefixes are supported for interoperability with client command line parsing
+- Options can be set [**programmatically**](main.mdx) and `argc`/`argv` passed from the command line do not have to be processed
+- Warnings themselves are not disabled
+
+## Extremely Portable {#extremely-portable}
+
+**Some of this content is outdated**
+
+- Standard-compliant **C++11** code - should work with any compiler with **C++11** features (use tag [**1.2.9**](https://github.com/doctest/doctest/tree/1.2.9) for C++98 and earlier compilers)
+- Tested with **GCC**: **4.8**, **4.9**, **5**, **6**, **7**, **8**, **9**, **10**, **11**, **12**
+- Tested with **Clang**: **3.5**, **3.6**, **3.7**, **3.8**, **3.9**, **4**, **5**, **6**, **7**, **8**, **9**, **10**, **11**, **12**, **13**, **14**, **15** (XCode 10+)
+- Tested with **MSVC**: **2015**, **2017**, **2019**, **2022** (32-bit mode)
+- Tested on every commit with [**GitHub Actions**](https://github.com/doctest/doctest/actions)
+    - Warnings are treated as errors even at the most aggressive warning levels - see [**here**](https://github.com/doctest/doctest/blob/master/scripts/cmake/common.cmake#L84)
+    - Static analysis on CI - [**Cppcheck**](http://cppcheck.sourceforge.net/) / [**Clang-Tidy**](https://clang.llvm.org/extra/clang-tidy/) / [**Coverity Scan**](https://scan.coverity.com/) / [**OCLint**](http://oclint.org/) / [**Visual Studio Analyzer**](https://docs.microsoft.com/en-us/visualstudio/code-quality/analyzing-c-cpp-code-quality-by-using-code-analysis)
+    - Output of all tests is compared against a previously known good reference run output
+    - All tests built and run in **Debug**/**Release** modes
+    - All tests run under **valgrind** on **Linux** (unfortunately [not under OSX](https://github.com/doctest/doctest/issues/11))
+    - All tests run under **address**, **UB**, and **thread** sanitizers on **Linux**/**OSX**
+    - Tests run in over **300** different configurations on UNIX (Linux + OSX) and Windows
+
+## Other Features {#other-features}
+
+- Really easy to get started - it's just 1 header file - see [**tutorial**](tutorial.mdx)
+- **Very** lightweight, unobtrusive, and portable - see sections above - and [**benchmarks**](benchmarks.mdx)
+- Provides a way to remove **all** test-related content from binaries using the [**`DOCTEST_CONFIG_DISABLE`**](configuration.mdx#doctest_config_disable) macro
+- Automatic test registration - no need to manually add them to a collection
+- [**Subcases**](tutorial.mdx#test-cases-and-subcases) - an intuitive way to share common setup and teardown code for test cases (alternatives like [**test fixtures**](testcases.mdx#test-fixtures) are also supported)
+- [**Templated test cases**](parameterized-tests.mdx#templated-test-cases-parameterized-by-type) - parameterized by type
+- Support for [**logging macros**](logging.mdx) to capture local variables and strings - as messages when assertions fail - with lazy stringification and minimal allocations wherever possible!
+- Crash handling support - using UNIX signals and Windows SEH
+- [**Thread-safe**](faq.mdx#is-doctest-thread-aware) - assertions (and logging) can be used from multiple threads spawned by a single test case - [**example**](https://github.com/doctest/doctest/blob/master/examples/all_features/concurrency.cpp)
+- Extensible [**reporter system**](reporters.mdx) (can also be used to implement event listeners)
+- Output is identical - byte for byte - across all compilers on all platforms
+- A binary (exe/dll) can use the test runner of another binary - so tests end up in a single registry - [**example**](https://github.com/doctest/doctest/blob/master/examples/executable_dll_and_plugin/)
+- Support for [**BDD-style**](testcases.mdx) testing
+- A core [**assertion macro**](assertions.mdx) for comparisons - standard C++ operators are used for comparisons (less than, equal to, greater than...) - but the full expression is decomposed and the values of the left and right expressions are logged
+- Assertions can be used [**outside of a testing context**](assertions.mdx#using-asserts-out-of-a-testing-context) - [**example**](https://github.com/doctest/doctest/blob/master/examples/all_features/asserts_used_outside_of_tests.cpp)
+- Assertion macros for [**exceptions**](assertions.mdx#exceptions) - if something should or should not throw
+- Floating-point comparison support - see the [**`Approx()`**](assertions.mdx#floating-point-comparisons) helper
+- Powerful mechanism for [**stringification**](stringification.mdx) of user types - including [**exceptions**](stringification.mdx#translated-exceptions)!
+- Tests can be grouped in [**test suites**](testcases.mdx#test-suites)
+- Test case [**decorators**](testcases.mdx#decorators) such as `description` / `skip` / `may_fail` / `should_fail` / `expected_failures` / `timeout`
+- Can be used without exceptions and RTTI - check out [**`DOCTEST_CONFIG_NO_EXCEPTIONS`**](configuration.mdx#doctest_config_no_exceptions)
+- Powerful [**command line**](commandline.mdx) with many options
+- Can report the duration of test cases
+- Tests can be [**filtered**](commandline.mdx) by their name/file/test suite using wildcards
+- Subcases can be [**filtered**](commandline.mdx) using wildcards and by specifying the nesting level at which these filters should work
+- Failures can (optionally) break into the debugger on Windows and Mac
+- Integration with Visual Studio's output window for failed tests
+- A `main()` can be provided when implementing the library with the [**`DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN`**](main.mdx#doctest_config_implement_with_main) identifier
+- Tests can be written in headers - they still get registered only once in the executable/shared object
+- [**Range-based**](commandline.mdx) execution of tests in the binary - see [**example python script**](https://github.com/doctest/doctest/blob/master/examples/range_based_execution.py)
+- [**Extension headers**](extensions.mdx) for extra functionality that doesn't need to go into the main `doctest.h` header
+- Colored output in the console
+- Control over the order of test execution
+- Different doctest::Context instances can be created and run multiple times in a single execution of the program
+- Ability to query if code is currently running in a test - `doctest::is_running_in_test`
+- Tests can be registered in CTest with the use of [`doctest_discover_tests(<target>)` from scripts/cmake/doctest.cmake](https://github.com/doctest/doctest/blob/master/scripts/cmake/doctest.cmake)
+
+There is a list of planned features that are all important and large - see the [**roadmap**](https://github.com/doctest/doctest/issues/600).

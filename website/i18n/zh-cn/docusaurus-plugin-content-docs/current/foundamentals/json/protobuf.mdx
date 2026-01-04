@@ -1,0 +1,473 @@
+# Protobuf-JSON 转换
+
+基于 `json_to_pb.h` 和 `pb_to_json.h` 头文件，本篇文档详细说明了 Merak 中 Protobuf（PB）与 JSON 之间的双向转换功能，包括使用方法、高级配置和注意事项——保持与 Merak 官方文档相同的结构和风格。
+
+## Overview
+
+`json_to_pb.h` 和 `pb_to_json.h` 提供了在 Protobuf 消息与 Merak JSON DOM (`Document`/`Value`) 或 JSON 字符串之间高效转换的能力。它们支持 Protobuf 核心特性（嵌套消息、重复字段、枚举、oneof、map 字段等），并兼容 Merak 的高性能设计理念。
+
+### Core Features
+
+* **完整类型映射**：准确映射所有 Protobuf 基本类型（`int32`/`int64`/`uint32`/`uint64`/`double`/`float`/`bool`/`string`/`bytes`）到 JSON 类型。
+* **Protobuf 特性支持**：无缝处理嵌套消息、重复字段（`repeated`）、枚举、oneof、map 字段（`map<>`）、必需字段和可选字段。
+* **灵活配置**：提供转换选项（如忽略未知字段、控制默认值输出、枚举转换模式）。
+* **错误处理**：返回清晰的转换状态，并支持详细错误信息（如字段不匹配、类型错误、缺少必需字段）。
+* **高性能**：复用 Merak DOM 的内存优化设计，实现低开销转换，适用于大规模数据场景。
+
+### Dependencies
+
+* 依赖 Merak 核心库（`document.h`/`value.h`/`stringbuffer.h` 等）。
+* 依赖 Protobuf 库（推荐 3.0+ 版本）；需链接 Protobuf 编译产物（`libprotobuf`）。
+
+## 1. JSON 到 Protobuf (`json_to_pb.h`)
+
+`json_to_pb.h` 提供将 Merak JSON DOM 或 JSON 字符串转换为 Protobuf 消息的接口，核心功能是将 JSON 结构和数值映射到对应的 Protobuf 字段。
+
+### 1.1 基本使用
+
+#### Step 1: 定义 Protobuf 消息
+
+首先，编写 `.proto` 文件（示例：`user.proto`）以定义目标 Protobuf 消息结构：
+
+```proto
+syntax = "proto3";
+
+package example;
+
+// 嵌套消息：地址信息
+message Address {
+  string street = 1;    // 街道
+  string city = 2;      // 城市
+  uint32 zip_code = 3;  // 邮编（可选）
+}
+
+// 枚举：用户状态
+enum UserStatus {
+  STATUS_UNKNOWN = 0;  // 默认枚举值
+  STATUS_ACTIVE = 1;   // 激活
+  STATUS_INACTIVE = 2; // 未激活
+}
+
+// 核心消息：用户信息
+message User {
+  string id = 1;                  // 用户 ID（必填）
+  string name = 2;                // 用户名（必填）
+  uint32 age = 3;                 // 年龄（可选）
+  bool is_vip = 4;                // 是否 VIP（默认: false）
+  repeated string tags = 5;        // 标签（重复字段）
+  repeated Address addresses = 6;  // 地址列表（嵌套重复消息）
+  UserStatus status = 7;           // 用户状态（枚举）
+  map<string, string> ext_info = 8;// 扩展信息（map 字段）
+
+  // oneof 字段：联系方式（互斥）
+  oneof contact {
+    string phone = 9;  // 电话
+    string email = 10; // 邮箱
+  }
+}
+```
+
+编译 `.proto` 文件生成 C++ 头文件和源文件（需 Protobuf 编译器 `protoc`）：
+
+```bash
+protoc --cpp_out=./ user.proto
+```
+
+生成 `user.pb.h` 和 `user.pb.cc`，在项目中引入并链接编译产物。
+
+#### Step 2: 将 JSON 转换为 Protobuf 消息
+
+使用 `JsonToPb` 系列接口进行转换，可支持 JSON 字符串或 Merak DOM 输入：
+
+```cpp
+#include "merak/proto/json_to_pb.h"
+#include "merak/json/document.h"
+#include "user.pb.h"  // 编译生成的 Protobuf 头文件
+#include <iostream>
+
+using namespace merak::json;
+using namespace example;
+
+int main() {
+  // 1. 待转换 JSON 字符串
+  const char* json_str = R"(
+  {
+    "id": "user_123",
+    "name": "Alice",
+    "age": 28,
+    "is_vip": true,
+    "tags": ["student", "tech"],
+    "addresses": [
+      {
+        "street": "123 Main St",
+        "city": "New York",
+        "zip_code": 10001
+      }
+    ],
+    "status": "STATUS_ACTIVE",
+    "ext_info": {
+      "school": "NYU",
+      "major": "CS"
+    },
+    "email": "alice@example.com"
+  }
+  )";
+
+  // 2. 解析 JSON 字符串为 Merak DOM（可选；直接字符串转换更简单）
+  Document json_doc;
+  if (json_doc.Parse(json_str).HasParseError()) {
+    std::cerr << "JSON 解析错误: " << GetParseError_En(json_doc.GetParseErrorCode()) << std::endl;
+    return 1;
+  }
+
+  // 3. 初始化 Protobuf 消息
+  User user_pb;
+
+  // 4. 配置转换选项（可省略使用默认值）
+  merak::proto::JsonToPbOptions options;
+  options.ignore_unknown_fields = true;  // 忽略 JSON 中 Protobuf 未定义字段
+  options.strict_required_fields = true; // 严格检查必填字段（默认: true）
+  options.enum_parse_mode = merak::proto::EnumParseMode::kEnumParseName; // 按枚举名解析（默认）
+
+  // 5. 执行转换（两种输入模式：DOM 或 JSON 字符串）
+  // 模式 1：从 Merak DOM 转换
+  bool success = merak::proto::JsonToPb(json_doc, &user_pb, options);
+  // 模式 2：直接从 JSON 字符串转换（内部解析 DOM）
+  // bool success = merak::proto::JsonToPb(json_str, &user_pb, options);
+
+  if (!success) {
+    std::cerr << "JSON 转 Protobuf 失败: " << merak::proto::GetJsonToPbError() << std::endl;
+    return 1;
+  }
+
+  // 6. 验证转换结果
+  std::cout << "转换成功. 用户 ID: " << user_pb.id() << std::endl;
+  std::cout << "用户状态: " << user_pb.status() << std::endl;
+  std::cout << "邮箱: " << user_pb.email() << std::endl;
+
+  return 0;
+}
+```
+
+### 1.2 核心配置：`JsonToPbOptions`
+
+该配置结构控制 JSON → PB 的行为。字段说明：
+
+| 字段名                      | 类型                   | 默认值                 | 描述                                                                                                                |
+| ------------------------ | -------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ignore_unknown_fields`  | `bool`               | `false`             | 是否忽略 JSON 中未定义在 Protobuf 的字段（true: 忽略；false: 转换失败）                                                                |
+| `strict_required_fields` | `bool`               | `true`              | 是否严格检查 Protobuf 必填字段（true: 缺失则失败；false: 允许缺失）                                                                     |
+| `enum_parse_mode`        | `EnumParseMode`（枚举）  | `kEnumParseName`    | 枚举解析模式：<br/>- `kEnumParseName`：按枚举名解析（如 "STATUS_ACTIVE"）<br/>- `kEnumParseNumber`：按枚举数字解析（如 1）                    |
+| `allow_hex_numbers`      | `bool`               | `false`             | 是否允许 JSON 中使用十六进制数（true: 支持 `0x123`; false: 仅支持十进制）                                                               |
+| `bytes_parse_mode`       | `BytesParseMode`（枚举） | `kBytesParseBase64` | Protobuf `bytes` 字段解析模式：<br/>- `kBytesParseBase64`：将 JSON 字符串解码为 Base64<br/>- `kBytesParseRaw`：将 JSON 字符串作为原始字节处理 |
+
+### 1.3 字段映射规则
+
+JSON 与 Protobuf 的类型映射遵循官方 Protobuf JSON 规范。核心映射如下：
+
+| Protobuf 字段类型                     | JSON 类型 | 描述                                                           |
+| --------------------------------- | ------- | ------------------------------------------------------------ |
+| `int32`/`int64`/`uint32`/`uint64` | 数字或字符串  | 支持 JSON 数字（如 123）或字符串（如 "123"）；超出范围转换失败                      |
+| `double`/`float`                  | 数字或字符串  | 支持 JSON 数字（如 3.14）或字符串（如 "3.14"）；不支持 NaN/Inf                 |
+| `bool`                            | 布尔或字符串  | 支持 JSON `true`/`false` 或字符串 "true"/"false"（不区分大小写）           |
+| `string`                          | 字符串     | 支持带空字符 (`\u0000`) 的 JSON 字符串（符合 Merak 特性）                    |
+| `bytes`                           | 字符串     | 默认 Base64 编码字符串；可通过 `bytes_parse_mode` 配置为原始字节               |
+| `enum`                            | 字符串或数字  | 根据 `enum_parse_mode` 映射为枚举名（如 "STATUS_ACTIVE"）或数字（如 1）       |
+| `repeated T`                      | 数组      | JSON 数组的每个元素遵循类型 T 的映射规则                                     |
+| 嵌套 `message`                      | 对象      | JSON 对象中的字段一一映射到嵌套消息的字段                                      |
+| `map<K, V>`                       | 对象      | 键类型为 K（支持 `string`/`int32`/`int64`/`uint32`/`uint64`）；值类型为 V |
+| `oneof`                           | 单字段     | JSON 中只能包含 oneof 的一个字段；若存在多个或没有字段，则转换失败                      |
+
+### 1.4 错误处理
+
+转换失败时，可通过以下接口获取详细错误信息：
+
+* `const char* GetJsonToPbError()`：返回可读错误描述（如 "required field 'id' not found"）。
+* `int GetJsonToPbErrorCode()`：返回错误码（对应 `JsonToPbErrorCode` 枚举，如 `kJsonToPbErrorMissingRequiredField`）。
+
+常见错误类型：
+
+* 缺少必填 Protobuf 字段。
+* 字段类型不匹配（如 JSON 字符串赋值给 PB `int32` 字段）。
+* 无效枚举值（如未知枚举名或数字）。
+* oneof 字段冲突（JSON 中出现多个 oneof 字段）。
+* JSON 数组类型不一致（如 `repeated int32` 对应的 JSON 数组中含字符串）。
+
+## 2. Protobuf 到 JSON (`pb_to_json.h`)
+
+`pb_to_json.h` 提供将 Protobuf 消息转换为 Merak JSON DOM 或 JSON 字符串的接口，支持输出格式控制和默认值处理等高级功能。
+
+### 2.1 基本使用
+
+使用第 1.1 节定义的 Protobuf 消息，将 PB 消息转换为 JSON：
+
+```cpp
+#include "merak/proto/pb_to_json.h"
+#include "merak/json/document.h"
+#include "merak/json/stringbuffer.h"
+#include "merak/json/writer.h"
+#include "user.pb.h"
+#include <iostream>
+
+using namespace merak::json;
+using namespace example;
+
+int main() {
+  // 1. 构造 Protobuf 消息
+  User user_pb;
+  user_pb.set_id("user_456");
+  user_pb.set_name("Bob");
+  user_pb.set_age(30);
+  user_pb.set_is_vip(false);
+  user_pb.add_tags("engineer");
+  user_pb.add_tags("golang");
+
+  // 添加嵌套地址消息
+  Address* addr = user_pb.add_addresses();
+  addr->set_street("456 Oak Ave");
+  addr->set_city("London");
+  addr->set_zip_code(234567890);
+
+  user_pb.set_status(UserStatus::STATUS_ACTIVE);
+  user_pb.mutable_ext_info()->insert({"company", "ABC Corp"});
+  user_pb.set_phone("+44 1234567890"); // 设置 oneof 字段
+
+  // 2. 配置转换选项
+  merak::proto::PbToJsonOptions options;
+  options.output_default_values = false;  // 不输出默认值字段（默认: false）
+  options.enum_output_mode = merak::proto::EnumOutputMode::kEnumOutputName; // 输出枚举名（默认）
+  options.use_proto_field_name = false;   // 使用 JSON 字段名（默认: false；使用 proto 定义的名称）
+  options.pretty_print = true;            // 格式化 JSON 输出（默认: false）
+  options.bytes_output_mode = merak::proto::BytesOutputMode::kBytesOutputBase64; // 输出 bytes 为 Base64（默认）
+
+  // 3. 执行转换（两种输出模式：Merak DOM 或 JSON 字符串）
+  // 模式 1：转换为 Merak DOM（可修改）
+  Document json_doc;
+  bool success = merak::proto::PbToJson(user_pb, &json_doc, options);
+  if (!success) {
+    std::cerr << "Protobuf 转 JSON 失败: " << merak::proto::GetPbToJsonError() << std::endl;
+    return 1;
+  }
+
+  // 模式 2：直接转换为 JSON 字符串（更简单）
+  // std::string json_str;
+  // bool success = merak::proto::PbToJson(user_pb, &json_str, options);
+
+  // 4. 输出 JSON 结果（格式化）
+  StringBuffer buffer;
+  PrettyWriter<StringBuffer> writer(buffer); // 格式化写入器
+  json_doc.Accept(writer);
+
+  std::cout << "Protobuf 转 JSON 结果:" << std::endl;
+  std::cout << buffer.GetString() << std::endl;
+
+  return 0;
+}
+```
+
+输出（格式化）：
+
+```json
+{
+    "id": "user_456",
+    "name": "Bob",
+    "age": 30,
+    "is_vip": false,
+    "tags": ["engineer", "golang"],
+    "addresses": [
+        {
+            "street": "456 Oak Ave",
+            "city": "London",
+            "zip_code": 234567890
+        }
+    ],
+    "status": "STATUS_ACTIVE",
+    "ext_info": {
+        "company": "ABC Corp"
+    },
+    "phone": "+44 1234567890"
+}
+```
+
+### 2.2 核心配置：`PbToJsonOptions`
+
+控制 PB → JSON 输出行为。字段说明：
+
+| 字段名                     | 类型                    | 默认值                  | 描述                                                                                                         |
+| ----------------------- | --------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `output_default_values` | `bool`                | `false`              | 是否输出 Protobuf 默认值字段（true: 输出；false: 忽略默认值字段）                                                               |
+| `enum_output_mode`      | `EnumOutputMode`（枚举）  | `kEnumOutputName`    | 枚举输出模式：<br/>- `kEnumOutputName`：输出枚举名（如 "STATUS_ACTIVE"）<br/>- `kEnumOutputNumber`：输出枚举数字（如 1）             |
+| `use_proto_field_name`  | `bool`                | `false`              | 是否使用 Protobuf 定义字段名（true: 使用 proto 名称；false: 使用 JSON 规范名，例如 proto `user_name` → JSON `userName`）           |
+| `pretty_print`          | `bool`                | `false`              | 是否格式化 JSON（true: 格式化；false: 紧凑）                                                                            |
+| `bytes_output_mode`     | `BytesOutputMode`（枚举） | `kBytesOutputBase64` | Protobuf `bytes` 输出模式：<br/>- `kBytesOutputBase64`：输出 Base64 字符串<br/>- `kBytesOutputRaw`：输出原始字节（可能包含不可打印字符） |
+| `ignore_empty_repeated` | `bool`                | `false`              | 是否忽略空的 `repeated` 字段（true: 忽略空数组；false: 输出空数组）                                                             |
+| `ignore_empty_map`      | `bool`                | `false`              | 是否忽略空的 `map` 字段（true: 忽略空对象；false: 输出空对象）                                                                  |
+| `max_depth`             | `int`                 | `100`                | 嵌套消息的最大深度（防止递归溢出；超过则转换失败）                                                                                  |
+
+### 2.3 字段映射规则
+
+Protobuf → JSON 映射遵循与 JSON→PB 对称的规则。关键补充说明：
+
+* **默认值处理**：默认值字段（如 `int32` = 0、`bool` = false、`string` = ""）默认被忽略；可通过 `output_default_values` 输出。
+* **重复字段**：Protobuf `repeated` 字段始终映射为 JSON 数组（空数组可根据 `ignore_empty_repeated` 忽略或保留）。
+* **oneof 字段**：仅输出 oneof 中已设置的字段（未设置则忽略）。
+* **Map 字段**：Protobuf `map<K, V>` 映射为 JSON 对象，键为 K 的字符串表示（例如 `int32` 键 123 → "123"）。
+* **枚举字段**：默认输出枚举名（如 "STATUS_ACTIVE"）；可通过 `enum_output_mode` 输出数字。
+
+### 2.4 错误处理
+
+转换失败时，可通过以下接口获取错误信息：
+
+* `const char* GetPbToJsonError()`：返回错误描述（如 "nested message depth exceeds max_depth"）。
+* `int GetPbToJsonErrorCode()`：返回错误码（对应 `PbToJsonErrorCode` 枚举，如 `kPbToJsonErrorMaxDepthExceeded`）。
+
+常见错误类型：
+
+* 嵌套消息深度超过 `max_depth` 限制。
+* Protobuf 消息包含未初始化的必填字段（仅在调试模式下检查）。
+* `bytes` 字段包含无效 Base64 字符（当 `bytes_output_mode` = `kBytesOutputBase64` 时）。
+
+## 3. 高级功能
+
+### 3.1 动态 Protobuf 消息处理
+
+支持通过 Protobuf 的 `Descriptor` 和 `Reflection` 接口处理动态消息（无需编译 `.proto` 文件）：
+
+```cpp
+#include "merak/proto/json_to_pb.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/message.h"
+
+// 动态 JSON → Protobuf 转换（已知 Descriptor）
+bool DynamicJsonToPb(const Document& json, const google::protobuf::Descriptor* desc, google::protobuf::Message* pb) {
+  return merak::proto::JsonToPb(json, desc, pb, merak::proto::JsonToPbOptions());
+}
+```
+
+### 3.2 自定义字段映射
+
+注册回调函数以自定义特定字段的转换逻辑（如特殊日期格式、自定义枚举映射）：
+
+```cpp
+// 注册字段转换回调（示例：将 JSON 日期字符串转换为 Protobuf int64 时间戳）
+merak::proto::RegisterJsonToPbFieldCallback(
+  "example.User",  // 消息全名
+  "create_time",   // 字段名
+  [](const Value& json_val, google::protobuf::Message* pb, const google::protobuf::FieldDescriptor* field) -> bool {
+    if (!json_val.IsString()) return false;
+    // 自定义逻辑：将 "2024-01-01" 转为时间戳
+    int64_t timestamp = ParseDateToTimestamp(json_val.GetString());
+    pb->GetReflection()->SetInt64(pb, field, timestamp);
+    return true;
+  }
+);
+```
+
+### 3.3 性能优化建议
+
+* **复用 DOM 对象**：频繁转换时复用 Merak `Document` 对象（通过 `SetObject()` / `SetArray()` 清空），减少内存分配开销。
+* **批量转换**：大量小消息转换时批量处理，并复用 `StringBuffer`，避免重复创建缓冲区。
+* **关闭不必要检查**：生产环境可设置 `ignore_unknown_fields = true` 减少字段校验开销。
+* **使用紧凑 JSON**：非人类可读场景禁用 `pretty_print`，降低字符串拼接开销。
+
+## 4. API 参考
+
+### 4.1 `json_to_pb.h` 核心 API
+
+#### 1. JSON 字符串 → Protobuf 消息
+
+```cpp
+bool JsonToPb(
+  const char* json_str,                  // 输入: JSON 字符串
+  google::protobuf::Message* pb_msg,     // 输出: Protobuf 消息（已初始化）
+  const JsonToPbOptions& options = JsonToPbOptions()  // 转换选项
+);
+```
+
+#### 2. Merak DOM → Protobuf 消息
+
+```cpp
+bool JsonToPb(
+  const Value& json_val,                 // 输入: Merak JSON Value（对象类型）
+  google::protobuf::Message* pb_msg,     // 输出: Protobuf 消息
+  const JsonToPbOptions& options = JsonToPbOptions()  // 转换选项
+);
+```
+
+#### 3. 动态消息转换（通过 Descriptor）
+
+```cpp
+bool JsonToPb(
+  const Value& json_val,
+  const google::protobuf::Descriptor* pb_desc,  // Protobuf 消息描述符
+  google::protobuf::Message* pb_msg,
+  const JsonToPbOptions& options = JsonToPbOptions()
+);
+```
+
+#### 4. 错误信息接口
+
+```cpp
+const char* GetJsonToPbError();          // 获取上次转换错误描述
+int GetJsonToPbErrorCode();              // 获取上次转换错误码 (JsonToPbErrorCode)
+```
+
+### 4.2 `pb_to_json.h` 核心 API
+
+#### 1. Protobuf 消息 → JSON 字符串
+
+```cpp
+bool PbToJson(
+  const google::protobuf::Message& pb_msg,  // 输入: Protobuf 消息
+  std::string* json_str,                    // 输出: JSON 字符串
+  const PbToJsonOptions& options = PbToJsonOptions()  // 转换选项
+);
+```
+
+#### 2. Protobuf 消息 → Merak DOM
+
+```cpp
+bool PbToJson(
+  const google::protobuf::Message& pb_msg,  // 输入: Protobuf 消息
+  Value* json_val,                          // 输出: Merak JSON Value（对象类型）
+  const PbToJsonOptions& options = PbToJsonOptions()  // 转换选项
+);
+```
+
+#### 3. 错误信息接口
+
+```cpp
+const char* GetPbToJsonError();          // 获取上次转换错误描述
+int GetPbToJsonErrorCode();              // 获取上次转换错误码 (PbToJsonErrorCode)
+```
+
+## 5. 注意事项
+
+1. **Protobuf 版本兼容性**：仅支持 Protobuf 3.0+。Protobuf 2.x 中 `required`/`optional` 的行为可能不一致。
+2. **JSON 字段名匹配**：默认情况下，Protobuf 字段名 `user_name` 映射到 JSON `userName`（camelCase）。若需使用原始字段名，请设置 `use_proto_field_name = true`。
+3. **枚举兼容性**：默认枚举值（数字 0）必须存在（如 `STATUS_UNKNOWN = 0`），否则转换可能失败。
+4. **大数据处理**：对于超大 Protobuf 消息（如 100MB+），可使用 Merak `FileReadStream` / `FileWriteStream` 分块处理，避免内存溢出。
+5. **线程安全**：转换接口非线程安全。多线程环境中请为每个线程单独调用或添加锁保护。
+6. **默认值行为**：Protobuf 3 中所有字段默认可选。默认值字段（如 0、false、空字符串）在 `output_default_values = false` 时不会包含在 JSON 中。
+
+## 6. 常见问题 (FAQs)
+
+### Q1: JSON 中缺少必填 Protobuf 字段会怎样？
+
+A1: 默认 (`strict_required_fields = true`) 下，转换失败，报错 "required field 'xxx' not found"。设置 `strict_required_fields = false` 可允许缺失字段（PB 消息使用默认值）。
+
+### Q2: Protobuf `oneof` 字段在 JSON 中如何表示？
+
+A2: JSON 中只允许出现 oneof 的一个字段；若多个或无字段，转换失败（JSON → PB）。PB → JSON 时仅输出已设置的 oneof 字段。
+
+### Q3: Protobuf `bytes` 字段如何处理？
+
+A3: 默认情况下，`bytes` 字段在 JSON 中表示为 Base64 字符串。可通过 `bytes_parse_mode`（JSON → PB）和 `bytes_output_mode`（PB → JSON）切换为原始字节。
+
+### Q4: Merak 的原地解析是否支持 JSON → PB 转换？
+
+A4: 支持。若 JSON 字符串通过原地解析（in situ parsing）转换为 Merak DOM，则转换为 PB 时无需额外字符串复制，提高性能。
+
+### Q5: 如何格式化转换后的 JSON 输出？
+
+A5: 可使用 Merak `PrettyWriter` 序列化 DOM，或直接设置 `PbToJsonOptions::pretty_print = true` 生成格式化 JSON 字符串。

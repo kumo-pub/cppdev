@@ -1,0 +1,106 @@
+# OCR Format Overview
+
+**OCR (Optical Character Recognition) data formats** are used to store scanned document content, often including both the raw image and extracted text/annotations.
+These formats are widely used in document digitization, search indexing, and automated processing pipelines.
+
+---
+
+## 1. Key Characteristics
+
+**Image + Text Storage**
+
+* OCR data typically combines the original image (TIFF, PNG, JPEG) with text results.
+* Text may be stored with positional metadata (bounding boxes, coordinates), allowing precise mapping back to the source image.
+
+**Structured Annotations**
+
+* Modern OCR frameworks often store results in JSON, XML, or proprietary formats.
+* Annotations can include:
+
+* Recognized text
+* Confidence scores
+* Word/line/page bounding boxes
+* Language or font hints
+
+**Hierarchical Organization**
+
+* Documents can have multiple pages, each with multiple regions or blocks of text.
+* This hierarchical structure enables efficient search and retrieval of text in large documents.
+
+---
+
+## 2. Usage Scenarios
+
+**Document Digitization**
+
+* Converting scanned documents to searchable PDFs or text archives.
+* Storing both the original image and extracted content for verification.
+
+**Search Indexing**
+
+* Index OCR results for full-text search in document management systems.
+* Positional data allows highlighting and annotation features.
+
+**Data Extraction**
+
+* Extract structured information (invoices, receipts, forms) using OCR results.
+* Combine with NLP or entity recognition pipelines.
+
+**Machine Learning Training**
+
+* OCR datasets are often used to train models for text detection and recognition.
+* Annotation formats like COCO-Text, ICDAR, or PAGE XML are standard.
+
+---
+
+## 3. Popular OCR Data Formats
+
+| Format       | Description                                                              | Official Link / Notes                                                                      |
+| ------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| **PAGE XML** | XML-based standard storing page layout, text, and metadata               | [https://www.primaresearch.org/page/page-xml](https://www.primaresearch.org/page/page-xml) |
+| **HOCR**     | HTML-based format for OCR results, storing word positions and confidence | [https://github.com/tmbdev/hocr-spec](https://github.com/tmbdev/hocr-spec)                 |
+| **ALTO XML** | XML format for OCR results, widely used in libraries and archives        | [https://www.loc.gov/standards/alto/](https://www.loc.gov/standards/alto/)                 |
+| **JSON**     | Custom or framework-specific JSON annotations                            | e.g., Tesseract output, Google Vision OCR API                                              |
+
+---
+
+## 4. Integration in Kumo
+
+In Kumo Stack, OCR data formats are typically used for:
+
+* Storing and indexing scanned documents for search
+* Supporting positional text highlighting in search results
+* Feeding downstream pipelines (NLP, classification, entity extraction)
+
+Integration considerations:
+
+* Choose a format compatible with your OCR engine (Tesseract, Google Vision, AWS Textract, etc.)
+* Maintain mapping between original images and extracted text
+* Consider compression and storage for large document archives (e.g., zipped images + JSON/XML)
+
+---
+
+## 5. Performance Notes
+
+**I/O Efficiency**
+
+* Storing text separately from images allows faster search and indexing
+* Large image archives benefit from block storage or cloud object storage
+
+**Data Size Considerations**
+
+* OCR output is usually small relative to raw images
+* Use binary XML or compressed JSON to reduce disk footprint
+
+**Parallel Processing**
+
+* Multi-page documents or large collections can be processed in parallel per page or region
+
+---
+
+## 6. Useful Links
+
+* PAGE XML: [https://www.primaresearch.org/page/page-xml](https://www.primaresearch.org/page/page-xml)
+* HOCR Specification: [https://github.com/tmbdev/hocr-spec](https://github.com/tmbdev/hocr-spec)
+* ALTO XML: [https://www.loc.gov/standards/alto/](https://www.loc.gov/standards/alto/)
+* Tesseract OCR: [https://tesseract-ocr.github.io/](https://tesseract-ocr.github.io/)

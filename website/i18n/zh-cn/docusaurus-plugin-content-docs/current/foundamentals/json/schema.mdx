@@ -1,0 +1,221 @@
+# Schema（模式）
+
+Merak 从 v1.1.0 开始支持 JSON Schema，用于描述 JSON 数据格式。JSON Schema 本身也是 JSON 文档。通过 JSON Schema 验证 JSON 可以让代码安全地访问 DOM，而无需手动检查类型或键是否存在，并确保输出的 JSON 符合指定的模式。
+
+Merak 实现了 [JSON Schema Draft v4](http://json-schema.org/documentation.html) 验证器。若不熟悉 JSON Schema，可参考 [Understanding JSON Schema](http://spacetelescope.github.io/understanding-json-schema/)。
+
+---
+
+## 基本用法 {#BasicUsage}
+
+1. 先将 JSON Schema 解析为 `Document`，再编译为 `SchemaDocument`。
+2. 使用 `SchemaDocument` 创建 `SchemaValidator`。`SchemaValidator` 可处理 SAX 事件，因此可以通过 `document.Accept(validator)` 验证 JSON，并获取验证结果。
+
+```cpp
+#include "merak/json/schema.h"
+
+Document sd;
+if (sd.Parse(schemaJson).HasParseError()) {
+    // Schema 不是合法 JSON
+}
+
+SchemaDocument schema(sd); // 编译 Document 为 SchemaDocument
+// 之后不再需要 sd
+
+Document d;
+if (d.Parse(inputJson).HasParseError()) {
+    // 输入不是合法 JSON
+}
+
+SchemaValidator validator(schema);
+if (!d.Accept(validator)) {
+    // JSON 不符合 Schema
+    StringBuffer sb;
+    validator.GetInvalidSchemaPointer().StringifyUriFragment(sb);
+    printf("Invalid schema: %s\n", sb.GetString());
+    printf("Invalid keyword: %s\n", validator.GetInvalidSchemaKeyword());
+    sb.Clear();
+    validator.GetInvalidDocumentPointer().StringifyUriFragment(sb);
+    printf("Invalid document: %s\n", sb.GetString());
+}
+```
+
+**注意事项**：
+
+* 一个 `SchemaDocument` 可被多个 `SchemaValidator` 引用，不会被修改。
+* `SchemaValidator` 可复用验证多个 JSON 文档，调用 `validator.Reset()` 重置状态。
+
+---
+
+## 解析/序列化时验证 {#ParsingSerialization}
+
+Merak 提供基于 SAX 的验证器，可在解析 JSON 流时即时验证，一旦发现不符合 Schema 的值，解析会立即终止。适合大 JSON 文件。
+
+### DOM 解析 {#DomParsing}
+
+DOM 解析需要 `Document` 做额外的准备和清理工作，因此需要 `SchemaValidatingReader` 连接 `Reader`、`SchemaValidator` 和 `Document`：
+
+```cpp
+SchemaDocument schema(sd);
+
+FILE* fp = fopen("big.json", "r");
+FileReadStream is(fp, buffer, sizeof(buffer));
+
+Document d;
+SchemaValidatingReader<kParseDefaultFlags, FileReadStream, UTF8<> > reader(is, schema);
+d.Populate(reader);
+
+if (!reader.GetParseResult()) {
+    if (!reader.IsValid()) {
+        StringBuffer sb;
+        reader.GetInvalidSchemaPointer().StringifyUriFragment(sb);
+        printf("Invalid schema: %s\n", sb.GetString());
+        printf("Invalid keyword: %s\n", reader.GetInvalidSchemaKeyword());
+        sb.Clear();
+        reader.GetInvalidDocumentPointer().StringifyUriFragment(sb);
+        printf("Invalid document: %s\n", sb.GetString());
+    }
+}
+```
+
+---
+
+### SAX 解析 {#SaxParsing}
+
+如果只需验证 JSON，可直接使用 SAX：
+
+```cpp
+SchemaValidator validator(schema);
+Reader reader;
+if (!reader.Parse(stream, validator)) {
+    if (!validator.IsValid()) {
+        // JSON 不符合 Schema
+    }
+}
+```
+
+* SAX 验证的内存使用仅与 Schema 复杂度相关，无论 JSON 多大，内存保持低。
+
+可进一步处理 SAX 事件，使用 `GenericSchemaValidator` 指定输出 Handler：
+
+```cpp
+MyHandler handler;
+GenericSchemaValidator<SchemaDocument, MyHandler> validator(schema, handler);
+Reader reader;
+if (!reader.Parse(ss, validator)) {
+    if (!validator.IsValid()) {
+        // ...
+    }
+}
+```
+
+---
+
+### 序列化验证 {#Serialization}
+
+可在序列化时验证 JSON：
+
+```cpp
+StringBuffer sb;
+Writer<StringBuffer> writer(sb);
+GenericSchemaValidator<SchemaDocument, Writer<StringBuffer> > validator(s, writer);
+if (!d.Accept(validator)) {
+    if (!validator.IsValid()) {
+        // 验证失败或编码问题
+    }
+}
+```
+
+SAX 风格生成同样可通过将事件重定向到 `SchemaValidator` 实现验证。
+
+---
+
+## 远程 Schema {#RemoteSchema}
+
+JSON Schema 支持 `$ref` 指向本地或远程 Schema：
+
+```json
+{ "$ref": "definitions.json#/address" }
+```
+
+* 本地指针以 `#` 开头。
+* 远程指针为 URI，需要用户实现 `IRemoteSchemaDocumentProvider`：
+
+```cpp
+class MyRemoteSchemaDocumentProvider : public IRemoteSchemaDocumentProvider {
+public:
+    const SchemaDocument* GetRemoteDocument(const char* uri, SizeType length) {
+        // 解析 uri 并返回 SchemaDocument
+    }
+};
+
+MyRemoteSchemaDocumentProvider provider;
+SchemaDocument schema(sd, &provider);
+```
+
+---
+
+## 标准符合性 {#Conformance}
+
+* Merak 在 [JSON Schema Test Suite](https://github.com/json-schema/JSON-Schema-Test-Suite) 中通过 262/263 测试（Draft v4）。
+* 唯一失败测试：`refRemote.json` 中 `id` 和 URI 解析未实现。
+* `format` 关键字被忽略（标准不强制实现）。
+
+---
+
+## 正则表达式 {#RegEx}
+
+`pattern` 和 `patternProperties` 使用正则匹配。Merak 默认实现简单 NFA：
+
+| 语法               | 含义        |   |
+| ---------------- | --------- | - |
+| `ab`             | 连接        |   |
+| `a               | b`        | 或 |
+| `a?`             | 0 或 1 次   |   |
+| `a*`             | 0 或多次     |   |
+| `a+`             | 1 或多次     |   |
+| `a{3}`           | 恰好 3 次    |   |
+| `a{3,}`          | 至少 3 次    |   |
+| `a{3,5}`         | 3~5 次     |   |
+| `(ab)`           | 分组        |   |
+| `^a`             | 字符串开始     |   |
+| `a$`             | 字符串结束     |   |
+| `.`              | 任意字符      |   |
+| `[abc]`          | 字符类       |   |
+| `[a-c]`          | 字符范围      |   |
+| `[^abc]`         | 非字符类      |   |
+| `[\b]`           | 退格 U+0008 |   |
+| `\n` `\r` `\t` 等 | 控制字符      |   |
+
+C++11 可用 `std::regex` 替代 NFA，通过定义：
+
+```cpp
+#define RAPIDJSON_SCHEMA_USE_INTERNALREGEX 0
+#define RAPIDJSON_SCHEMA_USE_STDREGEX 1
+```
+
+未使用 pattern 时可禁用以减少代码大小。
+
+---
+
+## 性能 {#Performance}
+
+* 大多数 C++ JSON 库不支持 JSON Schema。
+* Merak 在 MacBook Pro 测试结果：
+
+| 验证器              |  相对速度 | 每秒测试数 |
+| ---------------- | :---: | :---: |
+| Merak            |  155% | 30682 |
+| ajv              |  100% | 19770 |
+| is-my-json-valid |  70%  | 13835 |
+| jsen             | 57.7% | 11411 |
+| schemasaurus     |  26%  |  5145 |
+| themis           | 19.9% |  3935 |
+| z-schema         |   7%  |  1388 |
+| jsck             |  3.1% |  606  |
+| jsonschema       |  0.9% |  185  |
+| skeemas          |  0.8% |  154  |
+| tv4              |  0.5% |   93  |
+| jayschema        |  0.1% |   21  |
+
+* Merak 比最快的 JavaScript 库（ajv）快约 1.5 倍，比最慢的快 1400 倍。

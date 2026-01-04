@@ -1,0 +1,130 @@
+# Kumo Stack与AWS服务集成指南
+本文档详细说明**如何将AWS服务集成至Kumo部署环境**，核心聚焦**实操集成流程与运维指导**，不涉及云服务选型推荐。
+
+---
+
+## 1. `kmpkg`支持的AWS组件
+Kumo的包管理器`kmpkg`已集成以下AWS组件：
+
+| 包名 | 版本 | 描述 |
+|------|------|------|
+| aws-c-auth | 0.9.4 | AWS客户端认证库（C99标准） |
+| aws-c-cal | 0.9.13 | 加密原语封装库（C99标准） |
+| aws-c-common | 0.12.6 | AWS各库通用工具集 |
+| aws-c-compression | 0.3.1 | 霍夫曼编解码实现库 |
+| aws-c-event-stream | 0.5.9 | vnd.amazon.event-stream协议实现 |
+| aws-c-http | 0.10.7 | HTTP/1.1与HTTP/2客户端库 |
+| aws-c-io | 0.24.0 | 应用层协议的IO与TLS处理库 |
+| aws-c-mqtt | 0.13.3 | MQTT 3.1.1协议实现库 |
+| aws-c-s3 | 0.11.3 | S3对象存储客户端库 |
+| aws-c-sdkutils | 0.2.4 | 日志、重试逻辑与错误处理工具集 |
+| aws-checksums | 0.2.8 | 硬件加速CRC32/CRC32c校验库（含降级方案） |
+| aws-crt-cpp | 0.36.0 | AWS C库的C++封装层（含传输抽象） |
+| aws-lambda-cpp | 0.2.10 | AWS Lambda运行时（C++版） |
+| aws-sdk-cpp | 1.11.710 | 完整AWS SDK（C++版） |
+
+> 上述库为Kumo应用集成AWS S3、MQTT、Lambda及HTTP服务提供**底层核心构建块**。
+
+---
+
+## 2. 集成模式
+
+### 2.1 S3对象存储
+#### 适用场景
+- 备份RocksDB快照、SST文件或KV层导出数据
+- 大规模数据集的长期存储
+
+#### 最佳实践
+- 推荐**单个RocksDB快照/SST文件对应一个S3对象**，简化恢复流程
+- 启用S3**版本控制**，防止数据误删
+- 超大备份文件（＞5GB）采用**分片上传**
+- 高吞吐写入场景使用**前缀分片**（示例：`snapshots/20260104/part-0000X.sst`），避免S3写入瓶颈
+
+#### 示例：上传RocksDB SST文件
+```cpp
+#include <aws/s3/S3Client.h>
+#include <aws/s3/model/PutObjectRequest.h>
+#include <fstream>
+
+Aws::S3::S3Client s3_client;
+Aws::S3::Model::PutObjectRequest request;
+request.SetBucket("kumo-backup");
+request.SetKey("rocksdb-snapshot-20260104.sst");
+
+auto input_data = Aws::MakeShared<Aws::FStream>("snapshot", "snapshot.sst", std::ios::in | std::ios::binary);
+request.SetBody(input_data);
+
+auto outcome = s3_client.PutObject(request);
+if (!outcome.IsSuccess()) {
+    std::cerr << "快照上传失败: " << outcome.GetError().GetMessage() << "\n";
+}
+```
+
+### 2.2 事件流（Event Streaming）
+#### 适用场景
+- 将KV数据变更事件发布至事件流
+- 与Lambda或其他消费端集成
+
+#### 依赖库
+- `aws-c-event-stream`
+- `aws-c-http` / `aws-c-mqtt`
+
+#### 最佳实践
+- 采用**批量事件发送**降低传输开销
+- 通过`aws-c-sdkutils`监控**重试次数**与**延迟指标**
+
+### 2.3 计算服务（Lambda）
+#### 适用场景
+- 触发快照自动上传至S3
+- 基于KV层变更运行数据处理或告警脚本
+
+#### 依赖库
+- `aws-lambda-cpp`
+- 可与`aws-c-s3`或`aws-c-event-stream`集成实现输入/输出
+
+---
+
+## 3. KV层备份策略
+### （1）RocksDB快照
+- 轻量级，获取数据库时间点一致性视图
+- 可将**SST文件直接上传**至S3
+
+### （2）检查点文件（备份API）
+- 生成数据库目录的**完整副本**
+- 适用于数据恢复或迁移场景
+
+### 运维注意事项
+- 优先减少列族数量，简化备份/恢复流程
+- 超大规模数据库推荐通过SST文件上传实现**增量备份**
+
+---
+
+## 4. 键设计与吞吐量优化要点
+- 采用**固定长度前缀键**，提升KV范围遍历效率
+- 超高吞吐写入场景需随机化前缀，避免S3对象热点问题
+- SST文件上传应遵循RocksDB压缩模式，优先选择大尺寸顺序文件
+
+---
+
+## 5. 运维推荐方案
+- **环境隔离**：为开发、预发、生产环境分配独立S3桶/前缀
+- **吞吐量优化**：通过键设计避免S3热点（见上文）
+- **一致性考量**：S3覆盖/删除操作存在最终一致性，需适配备份恢复流程
+- **监控告警**：利用`aws-c-sdkutils`记录重试次数、错误信息及性能指标
+- **恢复验证**：生产环境恢复前，务必在预发环境完成备份验证
+
+---
+
+## 6. 示例工作流
+1. 通过`rocksdb::DB::GetSnapshot()`创建**RocksDB快照**
+2. 按需刷写列族数据
+3. 将**SST文件**保存至本地目录
+4. 利用`aws-c-s3`将SST文件上传至S3
+5. （可选）触发Lambda函数验证或处理快照数据
+
+---
+
+## 7. 总结
+- Kumo与AWS的集成以**运维落地为核心**，不提供选型建议
+- 推荐组合：S3用于KV备份、事件流用于消息传递、Lambda用于自动化处理
+- 最佳实践：减少列族数量、使用固定前缀键、直接上传SST文件，实现可维护性与可扩展性兼具的部署方案

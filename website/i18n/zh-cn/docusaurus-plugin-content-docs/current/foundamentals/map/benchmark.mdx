@@ -1,0 +1,140 @@
+# C++ 哈希表性能基准测试
+
+最新的哈希表性能对比结果已经发布，由 `ankerl::unordered_dense::map` 的开发者 Martin Leitner-Ankerl 提供。
+此前的测试是在 2019 年进行的，这次更新提供了更全面的测试数据，是选择高性能哈希表的有力参考。
+
+---
+
+## I. 哈希表性能对比
+
+### 测试维度
+
+* **数据类型**：分为数字类型（Numbers）和字符串类型（Strings）。
+* **操作类型**：常见操作，包括 Insert、Random Insert、Iterate、Find 和 Copy。
+* **特殊 Find 测试**：评估不同选择率和插入-查找频率下的性能。
+* **额外比较**：包括内存使用分析，总体结果使用算术平均计算。
+
+### 核心测试结果
+
+1. **ankerl::unordered_dense::map**
+性能最佳（所有操作的算术平均最高）。Copy 和 Iterate 性能无可匹敌，Find 性能优秀。能够适应不同哈希函数，性能波动小。继承自 robin_hood（同一作者），性能优于 robin_hood 系列。
+
+2. **gtl::flat_hash_map / gtl::parallel_flat_hash_map**
+在开源社区通常称为 `phmap::flat_hash_map` 和 `phmap::parallel_flat_hash_map`。`gtl::parallel_flat_hash_map` 是并行版本，衍生自 Google Abseil 的 `absl::flat_hash_map`，性能优异。仓库提供 BTree 和 Hash 容器实现，均为 header-only，便于集成。`gtl::flat_hash_map` 在 “Find 1 – 500k uint64_t” 测试中表现最佳。
+
+3. **emhash8::HashMap / emhash7::HashMap**
+性能仅次于 ankerl 系列，表现非常出色。
+
+4. **folly::F14NodeMap / folly::F14ValueMap**
+性能优秀，但依赖 Folly 库，适用于已有 Folly 集成的项目。
+
+5. **absl::flat_hash_map**
+Google Abseil 实现，属于高性能等级。擅长处理大容量哈希表和字符串查找，但 Copy 和 Iterate 相对较慢。
+
+6. **boost::unordered_map**
+查找性能约为 `std::unordered_map` 的两倍，可直接替换标准库版本。但内存占用较高，插入性能一般。
+
+7. **std::unordered_map**
+性能最低，仅作基准参考。
+
+---
+
+## II. 哈希函数比较
+
+测试涵盖整数类型和字符串类型，核心结论如下：
+
+* **整数类型**：
+
+* `std::hash` 和 `boost::hash` 直接使用原值作为哈希，性能受输入高度影响——**不推荐**。
+* `ankerl::unordered_dense::hash`：逻辑类似 `absl::hash`（均基于 wyhash），对整数类型做 XOR 处理，性能极佳。
+* `robin_hood::hash`：基于 MurmurHash3，性能稳定。
+* `mumx`：对整数处理方式与 `ankerl::unordered_dense::hash` 相同，性能稳定。
+
+* **字符串类型**：
+
+* `std::hash`：性能良好——**推荐**。
+* `boost::hash`：性能差——**不推荐**。
+* `ankerl::unordered_dense::hash` / `absl::hash`：基于 wyhash，性能优异。
+* `robin_hood::hash`：基于 MurmurHash2，性能良好。
+* `mumx`：字符串处理同 `std::hash`，兼容性强。
+
+> 数据来源：[https://martin.ankerl.com/2022/08/27/hashmap-bench-01/#ankerl__unordered_dense__map](https://martin.ankerl.com/2022/08/27/hashmap-bench-01/#ankerl__unordered_dense__map)
+
+---
+
+## III. 顶级容器深入分析
+
+以下两个容器均为 header-only，可直接作为第三方头文件集成，适应性强。
+
+### 1. Ankerl::unordered_dense::map
+
+* **GitHub**: [https://github.com/martinus/unordered_dense](https://github.com/martinus/unordered_dense)
+* **核心实现**：基于 Robin Hood probing（罗宾汉探测法）。
+
+#### 架构设计
+
+* **哈希函数**：`ankerl::unordered_dense::hash`，字符串类型默认使用 wyhash。
+* **核心结构**：两组关键数组：
+
+* **Vector Array**：存储 `{key, value}` 键值对。
+* **Bucket Array**：解决冲突，结构如下：
+
+```cpp
+struct Bucket {
+    uint32_t dist_and_fingerprint; // 高 3 字节存距离，低 1 字节存指纹
+    uint32_t value_idx; // 存储 vector 中数据索引
+};
+    ```
+* **优化点**：Bucket 数组部分排序（降序），内存连续，提高缓存局部性。
+
+#### 核心操作
+
+* **Insert**：
+
+1. 哈希 key 并计算 bucket_index。
+2. 若桶为空，直接插入。
+3. 若发生冲突，比对 `dist_and_fingerprint`，将距离大的元素先放。
+4. 依次向前移动 bucket_index 并更新 `dist_and_fingerprint`。
+5. 先在 vector 中插入数据，再更新 Bucket 中 `value_idx`（相对位置）。
+
+* **Find**：
+
+1. 哈希 key，计算 bucket_index。
+2. 对比 `dist_and_fingerprint`，若匹配，从 vector 取 key 比对。
+3. 若 key 匹配，返回 value；否则向前搜索直到 `dist_and_fingerprint > bucket.dist_and_fingerprint`。
+4. 优势：查找仅需有限顺序扫描，充分利用缓存局部性。
+
+* **Iterate**：直接遍历 vector，逻辑简单且性能极佳。
+
+---
+
+### 2. emhash8::HashMap
+
+* **GitHub**: [https://github.com/ktprime/emhash](https://github.com/ktprime/emhash)
+* **核心定位**：线性探测的代表作。
+
+#### 架构设计
+
+* **哈希函数**：整数类型使用 murmurhash3mixer，字符串类型使用 wyhash。
+* **优化点**：通过 “3-way combined probing” 解决 primary/secondary clustering，高负载（>0.9）仍保持高性能。
+
+#### 核心数据结构
+
+```cpp
+struct Index
+{
+    size_type bucket; // 存储冲突位置
+    size_type slot;   // 实际数据位置
+};
+typedef std::pair<KeyT, ValueT> value_type; // 键值对存储
+```
+
+#### 3-way 复合探测
+
+1. 2-3 个 CPU 缓存行内：线性探测。
+2. 超出缓存行：有限二次探测。
+3. 记录最后空位置 `_last`，通过公式 `(_mask / 2 + _last++) & _mask` 计算空槽。
+
+#### 智能冲突解决
+
+通过 Index 中 `bucket` 字段链接冲突节点，避免聚簇导致的性能下降。

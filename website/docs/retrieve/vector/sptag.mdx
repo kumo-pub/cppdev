@@ -1,0 +1,75 @@
+# SPTAG (Space Partition Tree And Graph) Overview
+
+- **Repository:** [https://github.com/microsoft/SPTAG](https://github.com/microsoft/SPTAG)
+- **Language:** C++ (Python/RESTful API bindings available)
+
+## Purpose & Use Cases
+SPTAG is an open-source vector similarity search library developed by Microsoft, focused on **balanced performance between recall rate and query speed** for high-dimensional vector datasets (10s to 1000s of dimensions). It integrates multiple index structures to adapt to different data scales and query requirements, and is oriented to offline batch indexing + semi-real-time query scenarios (limited dynamic update capabilities). It is suitable for:
+* Medium-to-large scale (10M–1B) high-dimensional vector approximate nearest neighbor (ANN) search.
+* Scenarios requiring adjustable recall-speed tradeoffs (e.g., semantic search with flexible precision requirements).
+* Enterprise-level AI applications (text/image embedding retrieval, recommendation system feature matching).
+
+Typical applications include:
+* NLP (semantic search, text embedding similarity matching).
+* Computer vision (image feature retrieval, small-scale face recognition).
+* Recommendation systems (user/item embedding matching for cold start scenarios).
+
+## Algorithms Supported
+SPTAG provides a variety of index algorithms with different architectural designs, covering tree-based, graph-based and hybrid types:
+
+| Algorithm               | Key Characteristics                                                                 | Use Case                                  |
+|-------------------------|-------------------------------------------------------------------------------------|-------------------------------------------|
+| `KDTree`                | Space-partitioning tree index – fast build speed, suitable for low-dimensional vectors (`<50` dims). | Low-dimensional vector search (e.g., simple feature vectors). |
+| `BKT` (Balanced K-D Tree)| Optimized KDTree variant – better balance of build/query speed for medium dimensions (50–200 dims). | Medium-dimensional static vector datasets. |
+| `Annoy`                 | Tree-based index (inspired by Spotify Annoy) – high query speed, moderate memory usage. | Real-time query scenarios with medium recall requirements. |
+| `HNSW` (Hierarchical Navigable Small Worlds) | Graph-based index – high recall rate, optimal for high-dimensional vectors (>200 dims). | High-dimensional vector search (e.g., BERT embeddings, image deep features). |
+| `BruteForce`            | Exact nearest neighbor search – no approximation, baseline for recall comparison.    | Small datasets (`<10M` vectors) with strict recall requirements. |
+
+## Core Technical Specifications
+### 1. Supported Metric Spaces
+SPTAG supports mainstream metric spaces for numerical vectors, with no native non-metric space support:
+
+| Metric Type       | Full Name                          | Supported Indexes               | Use Case                                  |
+|-------------------|------------------------------------|---------------------------------|-------------------------------------------|
+| L2                | Euclidean Distance                 | All indexes                     | General numerical vectors (image/video embeddings, low-dimensional features). |
+| Cosine            | Cosine Similarity/Distance         | All indexes                     | Text embeddings (direction-based similarity, e.g., BERT/LLM outputs). |
+| Inner Product (IP)| Dot Product                        | All indexes (via normalization)  | Normalized vector similarity (equivalent to cosine). |
+
+> Note: Non-metric spaces (Jaccard/Hamming/L1/L∞) are not supported; custom preprocessing for these spaces is unmaintained and not recommended for production.
+
+### 2. Supported Data Types
+SPTAG is optimized for 32-bit floating-point vectors, with limited support for other numerical types:
+
+| Data Type       | Precision | C++ Type          | Python Binding Mapping | Support Status                          | Use Case                                  |
+|-----------------|-----------|-------------------|------------------------|-----------------------------------------|-------------------------------------------|
+| Float32         | 32-bit    | `float`           | `numpy.float32`        | Fully supported (optimal performance)   | Default – core optimized type for all indexes. |
+| Float64 (Double)| 64-bit    | `double`          | `numpy.float64`        | Partial (2–3x slower)                   | High-precision scientific computing scenarios only. |
+| Int32           | 32-bit    | `int32_t`         | `numpy.int32`          | Partial (only L2 distance)              | Discrete feature vectors (e.g., count-based features). |
+| Float16 (FP16)/Int8/Binary | - | - | - | Not supported | No native handling; manual conversion to Float32 has no performance/memory benefits. |
+
+### 3. Dynamic Data Operations (Insert/Delete/Modify)
+SPTAG’s dynamic update capabilities are limited and non-real-time optimized:
+
+| Operation               | Support Level                                                                 | Constraints                                                                 |
+|-------------------------|--------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| Incremental Insertion   | Partial support (HNSW/Annoy only)                                               | - Batch insertion recommended (single-vector insertion latency: ~1ms/vector);<br/>- Max sustainable QPS: ~500;<br/>- Index build time increases significantly after frequent inserts. |
+| Real-Time Deletion      | Not supported                                                                 | No native deletion API; "soft delete" (filter results by ID post-query) leads to index bloat and query performance degradation. |
+| Vector Modification     | Not supported                                                                 | Must re-insert updated vectors (no in-place modification), inheriting insertion latency constraints. |
+
+## Characteristics
+| Feature             | Description                                                                                   |
+|---------------------|-----------------------------------------------------------------------------------------------|
+| Incremental Updates | Partial batch insertion (HNSW/Annoy); no deletion/modification; non-real-time optimized.      |
+| Query Speed         | HNSW > Annoy > BKT/KDTree; 5–20ms/query (100M 768-dim vectors), 0.5–5ms/query (10M vectors). |
+| Index Type          | Hybrid (tree-based: KDTree/BKT/Annoy; graph-based: HNSW; brute-force).                         |
+| Scalability         | Handles up to 1B vectors (single-node); no distributed multi-node support.                     |
+| Language Bindings   | C++ (full feature set), Python (core features), RESTful API (deployment-oriented).             |
+| Non-Metric Support  | No native support (requires custom preprocessing).                                            |
+| GPU Support         | Not supported                                                                                |
+
+## Notes
+* SPTAG’s core advantage is **rich index types** – select KDTree for low dimensions, HNSW for high dimensions to balance recall and speed.
+* For high-speed query scenarios (`<100M` vectors) requiring sub-millisecond latency, FAISS HNSW/GPU is more recommended.
+* Dynamic updates are only suitable for low-frequency batch insertion (hourly/daily); avoid using it for real-time single-vector write scenarios (e.g., real-time user behavior embedding).
+* Limitations: No distributed support; Python bindings lack partial HNSW tuning parameters; no non-metric space support; community maintenance is slow (last major update in 2023).
+* Best Practices: Use HNSW index for high-dimensional static vectors (10M–1B); pair with Redis for hot data caching to improve query speed; use batch insertion for incremental updates.

@@ -1,2 +1,82 @@
-# acl
+# ACL Library Overview
 
+**Project:** [ACL GitHub](https://github.com/acl-dev/acl)
+
+ACL is a **high-quality C/C++ networking and concurrency library**. It provides a complete set of primitives for I/O, event handling, coroutines, threading, and protocol implementations. Its engineering quality is very high, making it suitable for building **high-performance backend services**.
+
+---
+
+## 1. Key Features
+
+* **I/O and Networking**
+
+* High-performance non-blocking I/O.
+* Built-in support for TCP, UDP, and custom protocols.
+* Efficient event loops and socket handling.
+
+* **Coroutines**
+
+* Lightweight coroutines for concurrency.
+* Simplifies asynchronous programming in C/C++.
+
+* **Threading and Synchronization**
+
+* Built-in thread pools and synchronization primitives.
+* Supports high concurrency scenarios without manual thread management.
+
+* **Protocols and Utilities**
+
+* Supports HTTP, SMTP, Redis, and custom protocols.
+* Includes utilities for logging, timers, and more.
+
+---
+
+## 2. Typical Use Cases
+
+ACL excels in scenarios requiring:
+
+* **High-performance backend services** where raw I/O throughput is critical.
+* **Custom protocol handling** beyond standard HTTP/gRPC.
+* **Internal service infrastructure** where operational control over event loops, coroutines, and threads is necessary.
+
+It is **less suitable** for:
+
+* Business-layer services with complex **multi-language ecosystem requirements**.
+* Services where the main concern is rapid integration with **external ecosystems** rather than raw I/O performance.
+
+---
+
+## 3. Integration Considerations
+
+* **C++ Integration:** ACL is primarily C, with some C++ wrappers; integration into C++ projects is straightforward but requires linking and building the library.
+* **Operational Management:** ACL offers fine-grained control over event loops and threads, but this increases operational complexity.
+
+**Note:** In the Kumo system, ACL is generally used for **high-performance backend modules**, not for business orchestration layers.
+
+---
+
+## 4. Comparison Summary
+
+| Aspect                 | ACL                                         | gRPC / brpc                                          |
+| ---------------------- | ------------------------------------------- | ---------------------------------------------------- |
+| Focus                  | High-performance I/O, coroutines, protocols | RPC framework, ecosystem integration                 |
+| Best Fit               | Backend, high-throughput services           | Business-layer orchestration, multi-language clients |
+| Integration Complexity | Medium (requires build/linking)             | Medium-High (depends on ecosystem)                   |
+| Ecosystem Support      | Low                                         | High                                                 |
+| Operational Control    | High                                        | Medium                                               |
+
+---
+
+## 5. Practical Guidelines
+
+1. **Use ACL** when your service requires **low-latency I/O**, custom protocol handling, or **high concurrency**.
+2. **Do not use ACL** as a business-layer RPC solution where ecosystem integration, multi-language access, or rapid deployment is critical.
+3. **Combine ACL with other frameworks** if needed: ACL can serve as a backend I/O engine while gRPC handles business orchestration.
+
+---
+
+### Conclusion
+
+ACL is a **robust, production-grade networking library** that shines in **backend high-performance scenarios**. For business-layer orchestration or multi-language client access, other frameworks like gRPC are better suited.
+
+> Despite its capabilities, ACL should be chosen **with respect to ecosystem and operational needs**, rather than for general-purpose RPC.

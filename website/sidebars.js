@@ -300,15 +300,13 @@ const sidebars = {
         "rpc/brpc",
         "rpc/acl",
         "rpc/httplib",
-        "rpc/protobuf",
-        "rpc/flatbuffers",
-        "rpc/shark",
         {
           "type": "category",
           "label": "krpc",
-          link: {
-            "type": "doc",
-            "id": "rpc/krpc/index",
+          "link": {
+            "type": "generated-index",
+            "description": "krcp docs!",
+            "title": "krpc docs",
           },
           "items": [
             "rpc/krpc/getting_started",
@@ -376,6 +374,9 @@ const sidebars = {
             "retrieve/vector/hnswlib",
             "retrieve/vector/nmslib",
             "retrieve/vector/ngt",
+            "retrieve/vector/diskann",
+            "retrieve/vector/sptag",
+            "retrieve/vector/scann",
           ]
         },
         {
@@ -389,6 +390,7 @@ const sidebars = {
             "retrieve/trie/darts",
             "retrieve/trie/tsl",
             "retrieve/trie/marisa",
+            "retrieve/trie/cedar",
           ]
         },
         {
@@ -402,8 +404,22 @@ const sidebars = {
             "retrieve/nlp/hadar",
             "retrieve/nlp/jieba",
             "retrieve/nlp/sentencepiece",
+            "retrieve/nlp/stemming",
           ]
         },
+        {
+          "type": "category",
+          "label": "regex",
+          link: {
+            "type": "doc",
+            "id": "retrieve/regex/index",
+          },
+          "items": [
+            "retrieve/regex/re2",
+            "retrieve/regex/pcre",
+          ]
+        },
+          "retrieve/post/index"
       ]
     },
     {
@@ -422,7 +438,23 @@ const sidebars = {
             "id": "store/kv/index",
           },
           "items": [
-            "store/kv/rocksdb",
+            {
+              "type": "category",
+              "label": "rocksdb",
+              "link": {
+                "type": "generated-index",
+                "description": "using rocksdb！",
+                "title": "rocksdb"
+              },
+              "items": [
+                "store/kv/rocksdb/overview",
+                "store/kv/rocksdb/types",
+                "store/kv/rocksdb/config",
+                "store/kv/rocksdb/snapshot",
+                "store/kv/rocksdb/backup",
+                "store/kv/rocksdb/granite",
+              ]
+            },
             "store/kv/leveldb",
             "store/kv/lmdb",
           ]
@@ -453,6 +485,9 @@ const sidebars = {
             "store/format/hdf5",
             "store/format/ocr",
             "store/format/npy",
+            "store/format/arrow",
+            "store/format/avro",
+            "store/format/substrait",
           ]
         },
       ]
@@ -465,10 +500,10 @@ const sidebars = {
         "id": "ir/index",
       },
       "items": [
+        "ir/ast",
         "ir/pegtl",
         "ir/bison-flex",
         "ir/antlr",
-        "ir/ast",
         "ir/llvm",
       ]
     },

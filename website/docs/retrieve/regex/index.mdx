@@ -1,0 +1,24 @@
+# Regular Expression Engines for Retrieval
+
+### Overview
+
+Regular expressions are widely used in retrieval systems for **pattern matching, filtering, and text validation**. The choice of regex engine directly impacts **performance, safety, and maintainability** in production environments.
+
+In our system, we support two main engines: **RE2** and **PCRE**. Among them, **RE2 is preferred** for most industrial use cases due to its **linear-time guarantees, memory safety, and ease of integration**. PCRE is suitable only for controlled offline processing where full Perl syntax is required.
+
+---
+
+### Engine Comparison
+
+| Engine   | Syntax Coverage | Safety / Performance                           | Dynamic Compilation | Industrial Fit                                      | Notes                                                       |
+| -------- | --------------- | ---------------------------------------------- | ------------------- | --------------------------------------------------- | ----------------------------------------------------------- |
+| **RE2**  | Subset of PCRE  | Guaranteed linear-time, memory-safe            | ✔️                  | Online systems, large-scale text scanning, logs     | No backreferences, limited lookarounds, recommended default |
+| **PCRE** | Full Perl regex | Backtracking engine, unsafe on untrusted input | ✔️                  | Offline batch processing, advanced pattern matching | Supports captures, lookarounds, complex regex               |
+
+---
+
+### Recommendation
+
+* Use **RE2** as the default engine for all retrieval and search-related text processing.
+* Use **PCRE** only in controlled offline environments requiring full Perl-compatible features.
+* Avoid unsafe engines for **user-provided patterns** to prevent ReDoS attacks.

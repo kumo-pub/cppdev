@@ -1,0 +1,144 @@
+---
+title: RocksDB Snapshot and SST Loading
+---
+
+# RocksDB Snapshot and SST Loading
+
+This document explains the process of loading RocksDB snapshots, handling SST files, and considerations regarding column families (CFs) and consistency.
+
+---
+
+## 1. Overview
+
+Snapshots in RocksDB are external representations of database state, often stored as SST files. They are used for:
+
+- Backup and restore
+- Replication
+- Data migration
+
+Important points:
+
+1. Each **SST file contains data for exactly one column family**.  
+   - RocksDB does **not allow multiple column families** in a single SST file.
+   - To restore multiple column families, you must maintain a **mapping of SST files to CFs**.
+
+2. **Loading order matters**.  
+   - If snapshots are applied in the wrong order, the database may become inconsistent.
+   - For example, applying an older SST after a newer one can overwrite recent updates.
+
+3. Snapshots can be applied using the **`IngestExternalFile` API**.
+
+---
+
+## 2. SST File Writing and Traversal
+
+### 2.1 Writing an SST File
+
+You can use RocksDB’s native `SstFileWriter` to generate SSTs:
+
+```cpp
+rocksdb::SstFileWriter writer(rocksdb::EnvOptions(), cf_options);
+writer.Open("path/to/file.sst");
+writer.Put(key, value);
+writer.Finish();
+````
+
+* Each writer is tied to a **single column family**.
+* SST files are immutable after creation.
+
+### 2.2 Traversing SST Content
+
+* SSTs are **sorted key-value sequences**.
+* Traversal is done via `rocksdb::Iterator` on the database after ingestion, or using `SstFileReader` in some APIs.
+* Keys in SSTs are **sorted lexicographically**, and iterators allow:
+
+* `Seek(key)`
+* `SeekToFirst()`
+* `SeekToLast()`
+* `Next()` / `Prev()`
+
+---
+
+## 3. Snapshot Loading Process
+
+1. **Prepare Column Family Handles**
+
+* Ensure all target column families exist in the database.
+* Missing column families must be created before ingestion.
+
+2. **Ingest SST Files**
+
+```cpp
+rocksdb::IngestExternalFileOptions options;
+options.move_files = true; // optionally move instead of copy
+db->IngestExternalFile(cf_handle, sst_files, options);
+   ```
+
+* One SST per column family.
+* Multiple SSTs for the same column family can be ingested sequentially.
+
+3. **Maintain Order for Consistency**
+
+* For a multi-column-family snapshot:
+
+* Apply SSTs in **the order they were exported**.
+* Ensure dependent column families (e.g., raft_log, metadata) are ingested first if other CFs rely on them.
+
+4. **Optional Flush / Compact**
+
+* After ingestion, you can flush or compact:
+
+```cpp
+db->Flush(rocksdb::FlushOptions(), cf_handle);
+db->CompactRange(rocksdb::CompactRangeOptions(), cf_handle);
+   ```
+
+* Ensures the ingested data is immediately visible and reduces read amplification.
+
+---
+
+## 4. Column Family Consistency
+
+* **SST files per column family:** One SST maps to one CF.
+* **Multiple CFs in a snapshot:** Keep a manifest or metadata that records which SST belongs to which CF and their ingestion order.
+* **Atomicity:** RocksDB ingestion is **atomic per SST file**, but **not across multiple column families**.
+
+* To achieve cross-CF consistency, the snapshot loader must apply CFs in the original order and consider dependencies.
+
+---
+
+## 5. Important Notes and Best Practices
+
+1. **Never mix CFs in a single SST file**.
+2. **Always create missing CFs before loading snapshots**.
+3. **Track snapshot version**: ingestion must follow chronological order to avoid overwriting newer data.
+4. **Use write-ahead logging (`disableWAL=false`)** if durability is required during ingestion.
+5. **Check status** after every `IngestExternalFile` call; ingestion can fail due to corruption, existing keys, or incompatible options.
+6. **Iterators after ingestion** can be used to verify snapshot correctness.
+
+---
+
+## 6. Example Loading Sequence
+
+```cpp
+for (const auto &cf_name : snapshot_order) {
+    auto cf_handle = db->GetColumnFamilyHandle(cf_name);
+    db->IngestExternalFile(cf_handle, sst_files_for_cf[cf_name], ingest_options);
+}
+```
+
+* `snapshot_order` must reflect **original export order**.
+* Each CF can have multiple SST files; ingest them sequentially.
+
+---
+
+## 7. Summary
+
+* **SST → 1 CF**
+* **Multiple CFs → maintain order**
+* **IngestExternalFile** is atomic per SST
+* **Order and dependencies are critical**
+* **Flush/compact after ingestion** to ensure visibility and performance
+
+By following this procedure, you can safely restore RocksDB snapshots without breaking CF consistency.
+

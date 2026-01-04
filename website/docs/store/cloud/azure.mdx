@@ -1,0 +1,159 @@
+---
+title: Azure Integration
+---
+
+# Azure Integration with Kumo Stack
+
+This document describes **how to integrate Microsoft Azure services into a Kumo deployment**.
+Focus is **practical integration and operational guidance**, not a recommendation of which cloud to use.
+
+---
+
+## 1. Supported Azure Components via `kmpkg`
+
+Kumo’s package manager `kmpkg` supports the following Azure components:
+
+| Package | Version | Description |
+|---------|--------|-------------|
+| azure-c-shared-utility | 2025-03-31 | Common utilities used across Azure C SDKs. |
+| azure-core-cpp | 1.16.1#1 | Core Azure SDK utilities (HTTP transport, auth, etc.). |
+| azure-core-cpp[curl] | - | Libcurl HTTP transport implementation. |
+| azure-core-cpp[http] | - | All available HTTP transport implementations. |
+| azure-core-cpp[winhttp] | - | WinHTTP transport implementation. |
+| azure-core-amqp-cpp | 1.0.0-beta.11#2 | AMQP protocol SDK (C++). |
+| azure-core-tracing-opentelemetry-cpp | 1.0.0-beta.4#6 | OpenTelemetry tracing for Azure SDK. |
+| azure-data-tables-cpp | 1.0.0-beta.6#1 | Azure Table Storage SDK (C++). |
+| azure-identity-cpp | 1.13.2#1 | Authentication & identity management SDK (C++). |
+| azure-iot-sdk-c | 2025-03-31 | C99 SDK for Azure IoT device connectivity. |
+| azure-iot-sdk-c[use-prov-client] | - | Enables device provisioning client for DPS. |
+| azure-storage-blobs-cpp | 12.15.0 | Azure Blob Storage SDK (C++). |
+| azure-storage-common-cpp | 12.11.0 | Common storage utilities. |
+| azure-storage-files-datalake-cpp | 12.13.0 | Azure Data Lake Files SDK. |
+| azure-storage-files-shares-cpp | 12.15.0 | Azure File Shares SDK. |
+| azure-storage-queues-cpp | 12.5.0 | Azure Queue Storage SDK. |
+| azure-uamqp-c | 2025-03-31 | AMQP protocol library (C). |
+| azure-uhttp-c | 2025-03-31 | HTTP transport library (C). |
+| azure-umqtt-c | 2025-03-31 | MQTT protocol library (C). |
+| azure-kinect-sensor-sdk | 1.4.2 | Sensor SDK (cross-platform Linux/Windows). |
+| azure-kinect-depth-engine | 1.4.2 | Depth engine for Kinect sensors. |
+| azure-security-keyvault-* | 4.x | Key Vault SDK (Keys, Secrets, Certificates, Administration). |
+| azure-messaging-eventhubs-cpp | 1.0.0-beta.10#1 | Event Hubs SDK for publishing/consuming messages. |
+| azure-messaging-eventhubs-checkpointstore-blob-cpp | 1.0.0-beta.1#5 | Checkpoint store using Blob Storage. |
+
+> These libraries allow integration with Azure **Blob Storage, File Storage, Event Hubs, IoT, AMQP, and Key Vault**, providing the building blocks for Kumo KV backup, snapshots, and event pipelines.
+
+---
+
+## 2. Integration Patterns
+
+### 2.1 Blob Storage for KV Backup
+
+**Use Cases:**
+- Backup RocksDB snapshots or SST files.
+- Long-term retention and disaster recovery.
+
+**Best Practices:**
+- Prefer **single file per SST or snapshot directory** to simplify restore.
+- Enable **versioning and soft-delete** for safety.
+- For very large files (>256 MB), use **chunked upload** (`BlockBlobClient`).
+- Organize by **prefix/date** to optimize throughput:
+
+```
+
+kv-backups/
+└─ rocksdb/
+└─ 2026-01-04/
+├─ cf_default-00001.sst
+└─ cf_default-00002.sst
+
+````
+
+**C++ Example: Upload Blob**
+
+```cpp
+#include <azure/storage/blobs.hpp>
+using namespace Azure::Storage::Blobs;
+
+BlobClient blobClient = BlobClient::CreateFromConnectionString(
+    "<AZURE_CONN_STRING>", "kumo-backups", "rocksdb-snapshot-20260104.sst"
+);
+
+blobClient.UploadFromFile("snapshot.sst");
+````
+
+### 2.2 Event Hubs for Change Events
+
+**Use Cases:**
+
+* Stream KV change events for analytics or triggers.
+* Integrate with downstream processors or Azure Functions.
+
+**Libraries:**
+
+* `azure-messaging-eventhubs-cpp`
+* `azure-messaging-eventhubs-checkpointstore-blob-cpp` (for checkpoints)
+
+**Best Practices:**
+
+* Use **batched sends** to reduce network overhead.
+* Track **offsets/checkpoints** to allow recovery from failures.
+
+### 2.3 Key Vault for Secrets Management
+
+**Use Cases:**
+
+* Store encryption keys for KV backups or snapshot encryption.
+* Store credentials for S3/Azure blob clients.
+
+**Best Practices:**
+
+* Combine `azure-identity-cpp` with Key Vault SDK for **automatic token refresh**.
+* Limit Key Vault permissions per application or service.
+
+---
+
+## 3. KV Layer Backup Strategies
+
+* **RocksDB Snapshots:** Lightweight consistent views, ideal for S3 or Blob upload.
+* **Checkpoint API:** Full directory copy, can be uploaded as zip or SST collection.
+* **Operational Notes:**
+
+* Minimize column families to simplify backup/restore.
+* For large DBs, incremental SST upload is recommended.
+
+---
+
+## 4. Key Design & Throughput
+
+* Use **fixed-length prefix keys** for efficient range traversal.
+* Randomize prefix in high-throughput scenarios to avoid **blob hot spots**.
+* Optimize SST file size to align with Azure Blob large block sizes (~256 MB).
+
+---
+
+## 5. Operational Recommendations
+
+* **Bucket/Container Organization:** Separate dev, staging, prod.
+* **Throughput:** Prefix sharding for high-concurrency writes.
+* **Consistency:** Blob overwrite/delete is **strongly consistent**, unlike S3 eventual consistency, but monitor network errors.
+* **Monitoring:** Use Azure SDK logging and Event Hubs metrics for operational visibility.
+* **Restore:** Always verify backup restore on a staging environment.
+
+---
+
+## 6. Example Workflow
+
+1. Take RocksDB snapshot via `rocksdb::DB::GetSnapshot()`.
+2. Flush required column families.
+3. Save SST files locally.
+4. Upload SST files to Azure Blob Storage.
+5. Optionally trigger **Azure Function** to validate snapshot or trigger downstream processing.
+
+---
+
+## 7. Summary
+
+* Azure integration in Kumo focuses on **operational-first design**.
+* Use **Blob Storage** for KV backup, **Event Hubs** for change streaming, and **Key Vault** for secrets.
+* Favor **minimal CFs, fixed prefix keys, direct SST uploads**, and **container/prefix organization** for maintainable deployments.
+

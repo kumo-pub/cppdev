@@ -1,0 +1,117 @@
+# RocksDB 快照与SST文件加载
+本文档阐述RocksDB快照的加载流程、SST文件的处理方式，以及与列族（CF）和数据一致性相关的注意事项。
+
+---
+
+## 1. 概述
+RocksDB中的快照是数据库状态的外部表现形式，通常以SST文件形式存储，主要用于：
+- 备份与恢复
+- 数据复制
+- 数据迁移
+
+核心要点：
+1. 每个**SST文件仅包含单个列族的数据**。
+- RocksDB**不允许**在单个SST文件中存储多个列族的数据。
+- 若要恢复多个列族，必须维护一份**SST文件与列族的映射关系**。
+
+2. **加载顺序至关重要**。
+- 若快照加载顺序错误，可能导致数据库数据不一致。
+- 例如，在较新的SST文件之后加载旧版SST文件，会覆盖近期的更新数据。
+
+3. 可通过**`IngestExternalFile` API** 应用快照。
+
+---
+
+## 2. SST文件的写入与遍历
+
+### 2.1 写入SST文件
+可使用RocksDB原生的`SstFileWriter`生成SST文件：
+
+```cpp
+rocksdb::SstFileWriter writer(rocksdb::EnvOptions(), cf_options);
+writer.Open("path/to/file.sst");
+writer.Put(key, value);
+writer.Finish();
+```
+
+* 每个写入器（writer）绑定至**单个列族**。
+* SST文件创建后不可修改。
+
+### 2.2 遍历SST文件内容
+* SST文件存储的是**有序的键值对序列**。
+* 可在文件导入后通过数据库的`rocksdb::Iterator`遍历，部分API也支持通过`SstFileReader`遍历。
+* SST文件中的键按**字典序排序**，迭代器支持以下操作：
+* `Seek(key)`
+* `SeekToFirst()`
+* `SeekToLast()`
+* `Next()` / `Prev()`
+
+---
+
+## 3. 快照加载流程
+1. **准备列族句柄**
+* 确保目标数据库中存在所有待导入数据对应的列族。
+* 缺失的列族必须在导入前创建。
+
+2. **导入SST文件**
+```cpp
+rocksdb::IngestExternalFileOptions options;
+options.move_files = true; // 可选：移动文件而非复制
+db->IngestExternalFile(cf_handle, sst_files, options);
+```
+* 每个SST文件对应一个列族。
+* 同一列族的多个SST文件可按顺序导入。
+
+3. **维持顺序以保障一致性**
+* 对于包含多列族的快照：
+* 按**导出时的顺序**导入各列族的SST文件。
+* 若部分列族依赖其他列族（如raft_log、metadata），需优先导入这些依赖列族。
+
+4. **可选：刷盘/压缩**
+* 导入完成后可执行刷盘或压缩操作：
+```cpp
+db->Flush(rocksdb::FlushOptions(), cf_handle);
+db->CompactRange(rocksdb::CompactRangeOptions(), cf_handle);
+```
+* 确保导入的数据立即可见，并降低读取放大效应。
+
+---
+
+## 4. 列族一致性
+* **列族与SST文件的映射**：一个SST文件仅对应一个列族。
+* **快照中的多列族处理**：需维护清单或元数据，记录各SST文件所属列族及导入顺序。
+* **原子性**：RocksDB的SST文件导入操作**按单个文件原子执行**，但**不支持跨多列族的原子性**。
+* 若要实现跨列族一致性，快照加载器需按原始顺序导入各列族，并考虑列族间的依赖关系。
+
+---
+
+## 5. 重要注意事项与最佳实践
+1. **禁止在单个SST文件中混合存储多个列族的数据**。
+2. **加载快照前务必创建缺失的列族**。
+3. **跟踪快照版本**：导入操作必须按时间顺序执行，避免覆盖较新的数据。
+4. **若需保障导入过程的数据持久性，启用预写日志（`disableWAL=false`）**。
+5. **每次调用`IngestExternalFile`后检查执行状态**；文件损坏、键已存在或选项不兼容等问题均可能导致导入失败。
+6. **导入完成后可通过迭代器验证快照数据的正确性**。
+
+---
+
+## 6. 加载流程示例
+```cpp
+for (const auto &cf_name : snapshot_order) {
+    auto cf_handle = db->GetColumnFamilyHandle(cf_name);
+    db->IngestExternalFile(cf_handle, sst_files_for_cf[cf_name], ingest_options);
+}
+```
+* `snapshot_order`必须与**原始导出顺序**一致。
+* 单个列族可对应多个SST文件，需按顺序导入。
+
+---
+
+## 7. 总结
+* **SST文件 → 唯一列族**
+* **多列族场景 → 严格维持导入顺序**
+* **`IngestExternalFile`操作按单个SST文件原子执行**
+* **导入顺序与列族依赖关系是保障一致性的关键**
+* **导入后执行刷盘/压缩，确保数据可见性与性能**
+
+遵循上述流程，可安全恢复RocksDB快照，且不会破坏列族的数据一致性。

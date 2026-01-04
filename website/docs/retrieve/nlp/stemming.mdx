@@ -1,0 +1,68 @@
+# libstemmer – Snowball Stemming Library
+
+**Library:** libstemmer (Snowball)
+**Languages:** C, C++, bindings in many others
+
+## Overview
+
+libstemmer is a **lightweight stemming library** implementing the Snowball stemming algorithms. A stemmer reduces words to their **root form** (e.g., `running → run`, `jumps → jump`), which is essential in many **information retrieval (IR) and NLP pipelines** to normalize terms before indexing or querying.
+
+Snowball (the algorithm family) was designed by Martin Porter and provides a set of fast, rule‑based stemmers for many languages. The `libstemmer` project provides **C/C++ bindings** that can be integrated into retrieval systems, search engines, and text processing pipelines.
+
+---
+
+## Key Features
+
+- **Rule‑based stemming:** Language‑specific suffix stripping.
+- **Multi‑language support:** English, Spanish, French, German, Italian, Portuguese, Dutch, etc.
+- **Efficient and lightweight:** Small, fast, production-ready.
+- **C/C++ API:** Direct integration without heavyweight dependencies.
+- **Portable:** Works on embedded systems and servers alike.
+
+---
+
+## Typical Use Cases
+
+- **Search indexing:** Normalize word variants before building inverted indexes.
+- **Query normalization:** Reduce queries to stems to increase recall.
+- **Text preprocessing:** Useful when full lemmatization is unnecessary.
+- **Cross-language retrieval:** Consistent stemming across supported languages.
+
+---
+
+## Industrial Fit
+
+| Requirement                          | libstemmer Support |
+|-------------------------------------|-------------------|
+| Term normalization (stemming)       | ✔️ |
+| Multi-language stemming             | ✔️ |
+| Lightweight integration             | ✔️ |
+| Unicode normalization               | ❌* |
+| Lemmatization (morphology aware)    | ❌ |
+
+\* *libstemmer expects pretokenized words; full Unicode handling requires pre-processing.*
+
+---
+
+## C++ Usage Example
+
+```cpp
+#include <iostream>
+#include <string>
+#include <libstemmer.h>
+
+int main() {
+    struct sb_stemmer * stemmer = sb_stemmer_new("english", nullptr);
+    if (!stemmer) return 1;
+
+    std::string word = "running";
+    const sb_symbol * stemmed = sb_stemmer_stem(stemmer,
+                                                (const sb_symbol*)word.c_str(),
+                                                word.size());
+    if (stemmed)
+        std::cout << "Original: " << word
+                  << ", Stemmed: " << (char*)stemmed << std::endl;
+
+    sb_stemmer_delete(stemmer);
+    return 0;
+}

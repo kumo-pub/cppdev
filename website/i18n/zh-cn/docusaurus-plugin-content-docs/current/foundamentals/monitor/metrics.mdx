@@ -1,0 +1,313 @@
+# 指标（Metrics）
+
+本节介绍可通过 Prometheus 收集的监控指标，包括 `Counter`、`Gauge` 和 `Histogram`。
+
+## tally::Counter
+
+顾名思义，用于累加，运算符为 `+`。
+
+```c++
+tally::Counter<int> value;
+value << 1 << 2 << 3 << -4;
+CHECK_EQ(2, value.get_value());
+
+tally::Counter<double> fp_value;  // 可能会产生警告
+fp_value << 1.0 << 2.0 << 3.0 << -4.0;
+CHECK_DOUBLE_EQ(2.0, fp_value.get_value());
+```
+
+`Counter<>` 可以与非原生类型一起使用，前提是该类型至少重载了 `T operator+(T, T)`。现有示例是 `std::string`，下面的代码实现字符串拼接：
+
+```c++
+// 仅用于概念验证，不建议用于生产代码，因为会生成大量临时字符串，效率低下。生产中应使用 std::ostringstream。
+tally::Counter<std::string> concater;
+std::string str1 = "world";
+concater << "hello " << str1;
+CHECK_EQ("hello world", concater.get_value());
+```
+
+## tally::MaxerGauge
+
+用于获取最大值，运算符为 `std::max`。
+
+```c++
+tally::MaxerGauge<int> value;
+value << 1 << 2 << 3 << -4;
+CHECK_EQ(3, value.get_value());
+```
+
+由于 `MaxerGauge<>` 使用 `std::numeric_limits<T>::min()` 作为初始值，因此不能直接用于泛型类型，除非对 `std::numeric_limits<>` 进行特化（并重载 `operator<`，注意不是 `operator>`）。
+
+## tally::MinerGauge
+
+用于获取最小值，运算符为 `std::min`。
+
+```c++
+tally::MinerGauge<int> value;
+value << 1 << 2 << 3 << -4;
+CHECK_EQ(-4, value.get_value());
+```
+
+由于 `MinerGauge<>` 使用 `std::numeric_limits<T>::max()` 作为初始值，因此不能直接用于泛型类型，除非对 `std::numeric_limits<>` 进行特化（并重载 `operator<`）。
+
+## tally::AverageGauge
+
+用于计算平均值。
+
+```c++
+// 用于计算数字的平均值
+// 示例：
+//   AverageGauge latency;
+//   latency << 1 << 3 << 5;
+//   CHECK_EQ(3, latency.average());
+class AverageGauge : public Variable;
+```
+
+## tally::LatencyRecorder
+
+专用于计算延迟和 QPS（每秒查询数）的计数器。只需输入延迟数据即可得到 latency / max_latency / QPS / count。统计窗口由最后一个参数指定，若省略则默认为 `tally_dump_interval`（此处未提供）。
+
+注意：`LatencyRecorder` 不继承自 `Variable`，而是多个 `tally` 组件的组合。
+
+```c++
+LatencyRecorder write_latency("table2_my_table_write");  // 生成 4 个变量：
+                                                         //   table2_my_table_write_latency
+                                                         //   table2_my_table_write_max_latency
+                                                         //   table2_my_table_write_qps
+                                                         //   table2_my_table_write_count
+// 在写入函数中
+write_latency << the_latency_of_write;
+```
+
+## tally::Window
+
+从指定过去时间窗口获取统计值。`Window` 不能独立存在，必须依赖已有计数器。`Window` 会自动更新，无需显式输入数据。为性能考虑，`Window` 的数据每秒从原始计数器采样一次，最坏情况下返回值的最大延迟为 1 秒。
+
+```c++
+// 获取时间窗口内的数据，时间单位固定为 1 秒
+// Window 依赖于另一个 tally，该 tally 必须在 window 构造之前创建，并在 window 销毁之后销毁。
+// R 必须：
+// - 提供 get_sampler()（线程安全不要求）
+// - 定义 value_type 和 sampler_type
+template <typename R>
+class Window : public Variable;
+```
+
+### 使用 tally::Window
+
+```c++
+tally::Counter<int> sum;
+tally::MaxerGauge<int> max_value;
+tally::IntRecorder avg_value;
+
+// sum_minute.get_value() 返回过去 60 秒内 sum 的累积值
+tally::Window<tally::Counter<int> > sum_minute(&sum, 60);
+
+// max_value_minute.get_value() 返回过去 60 秒内 max_value 的最大值
+tally::Window<tally::MaxerGauge<int> > max_value_minute(&max_value, 60);
+
+// avg_value_minute.get_value() 返回过去 60 秒内 avg_value 的平均值
+tally::Window<IntRecorder> avg_value_minute(&avg_value, 60);
+```
+
+## tally::PerSecond
+
+从指定过去时间窗口获取每秒平均统计值。其本质与 `Window` 相同，但返回值会除以时间窗口长度。
+
+```c++
+tally::Counter<int> sum;
+
+// sum_per_second.get_value() 返回过去 60 秒内 sum 的每秒平均累积值
+tally::PerSecond<tally::Counter<int> > sum_per_second(&sum, 60);
+```
+
+**PerSecond 并非总是有意义**
+
+上例未包含 `MaxerGauge`，因为将时间窗口内的最大值除以时间没有意义。
+
+```c++
+tally::MaxerGauge<int> max_value;
+
+// 错误示例：将最大值除以时间没有意义
+tally::PerSecond<tally::MaxerGauge<int> > max_value_per_second_wrong(&max_value);
+
+// 正确做法：将 Window 的时间窗口设置为 1 秒
+tally::Window<tally::MaxerGauge<int> > max_value_per_second(&max_value, 1);
+```
+
+### 与 Window 的区别
+
+例如，统计过去一分钟内内存变化：
+
+* 使用 `Window<>`，返回值表示“过去一分钟内内存增加了 18MB”
+* 使用 `PerSecond<>`，返回值表示“过去一分钟内平均每秒增加 0.3MB”
+
+`Window` 的优势是提供精确值，适合小量统计（如“过去一分钟的错误数”）。用 `PerSecond` 会得到“过去一分钟每秒 0.0167 个错误”，显然不如“过去一分钟 1 个错误”直观。此外，时间无关的指标应使用 `Window`。例如计算过去一分钟 CPU 利用率：使用 `Counter` 累积 CPU 时间和真实时间，然后用 `Window` 获取过去一分钟的 CPU 时间与真实时间，再相除得到 CPU 利用率——这是时间无关的，用 `PerSecond` 会得到错误结果。
+
+## tally::WindowEx
+
+从指定过去时间窗口获取统计值。`WindowEx` 独立存在，不依赖其他计数器，需要显式输入数据。为性能考虑，`WindowEx` 每秒汇总一次数据，最坏情况下返回值延迟最大为 1 秒。
+
+```c++
+// 获取时间窗口内的数据，时间单位固定为 1 秒
+// WindowEx 不依赖其他 tally 组件
+
+// R 必须：
+// - window_size 必须是常量
+template <typename R, time_t window_size = 0>
+class WindowEx : public adapter::WindowExAdapter<R, adapter::WindowExType<R> > {
+public:
+    typedef adapter::WindowExAdapter<R, adapter::WindowExType<R> > Base;
+
+    WindowEx() : Base(window_size) {}
+
+    WindowEx(const base::StringPiece& name) : Base(window_size) {
+        this->expose(name);
+    }
+
+    WindowEx(const base::StringPiece& prefix,
+             const base::StringPiece& name)
+        : Base(window_size) {
+        this->expose_as(prefix, name);
+    }
+};
+```
+
+### 使用 tally::WindowEx
+
+```c++
+const int window_size = 60;
+
+// sum_minute.get_value() 返回 60 秒内累积值
+tally::WindowEx<tally::Counter<int>, window_size> sum_minute("sum_minute");
+sum_minute << 1 << 2 << 3;
+
+// max_minute.get_value() 返回 60 秒内最大值
+tally::WindowEx<tally::MaxerGauge<int>, window_size> max_minute("max_minute");
+max_minute << 1 << 2 << 3;
+
+// min_minute.get_value() 返回 60 秒内最小值
+tally::WindowEx<tally::MinerGauge<int>, window_size> min_minute("min_minute");
+min_minute << 1 << 2 << 3;
+
+// avg_minute.get_value() 返回 60 秒内平均值（返回 tally::Stat）
+// window_size 参数省略时，默认为 tally_dump_interval
+tally::WindowEx<tally::IntRecorder, window_size> avg_minute("avg_minute");
+avg_minute << 1 << 2 << 3;
+
+// 获取 avg_minute 60 秒平均统计
+tally::Stat avg_stat = avg_minute.get_value();
+// 获取整数平均值
+int64_t avg_int = avg_stat.get_average_int();
+// 获取双精度平均值
+double avg_double = avg_stat.get_average_double();
+```
+
+### tally::WindowEx 与 tally::Window 的区别
+
+* `tally::Window` 不能独立存在，必须依赖已有计数器。它自动更新，无需显式输入数据；`window_size` 通过构造函数传入
+* `tally::WindowEx` 独立存在，不依赖其他计数器，需要显式输入数据（使用更方便）；`window_size` 通过模板参数传入，省略时默认为 `tally_dump_interval`
+
+## tally::PerSecondEx
+
+从指定过去时间窗口获取每秒平均统计值，本质与 `WindowEx` 相同，但返回值除以时间窗口长度。
+
+```c++
+// 获取时间窗口内每秒的数据
+// PerSecondEx 与 WindowEx 的唯一区别：PerSecondEx 将汇总数据除以时间窗口长度
+
+// R 必须：
+// - window_size 必须是常量
+template <typename R, time_t window_size = 0>
+class PerSecondEx : public adapter::WindowExAdapter<R, adapter::PerSecondExType<R> > {
+public:
+    typedef adapter::WindowExAdapter<R, adapter::PerSecondExType<R> > Base;
+
+    PerSecondEx() : Base(window_size) {}
+
+    PerSecondEx(const base::StringPiece& name) : Base(window_size) {
+        this->expose(name);
+    }
+
+    PerSecondEx(const base::StringPiece& prefix,
+                const base::StringPiece& name)
+        : Base(window_size) {
+        this->expose_as(prefix, name);
+    }
+};
+```
+
+### 使用 tally::PerSecondEx
+
+```c++
+const int window_size = 60;
+
+// sum_per_second.get_value() 返回过去 60 秒每秒平均累积值
+tally::PerSecondEx<tally::Counter<int>, window_size> sum_per_second("sum_per_second");
+sum_per_second << 1 << 2 << 3;
+```
+
+### tally::PerSecondEx 与 tally::WindowEx 的区别
+
+* `tally::PerSecondEx` 获取指定时间窗口内的每秒平均值，本质与 `WindowEx` 相同，但返回值除以时间窗口长度
+
+### tally::PerSecondEx 与 tally::PerSecond 的区别
+
+* `tally::PerSecond` 不能独立存在，必须依赖已有计数器，自动更新，无需显式输入数据；`window_size` 通过构造函数传入
+* `tally::PerSecondEx` 独立存在，不依赖其他计数器，需要显式输入数据，使用更方便；`window_size` 通过模板参数传入，省略时默认为 `tally_dump_interval`
+
+## tally::Status
+
+记录并展示值，并附加 `set_value` 方法。
+
+```c++
+// 显示较少或周期性更新的值
+// 用法：
+//   tally::Status<int> foo_count1(17);
+//   foo_count1.expose("my_value");
+//
+//   tally::Status<int> foo_count2;
+//   foo_count2.set_value(17);
+//
+//   tally::Status<int> foo_count3("my_value", 17);
+//
+// 注意 Tp 必须是 std::string 或可兼容 boost::atomic<Tp>
+template <typename Tp>
+class Status : public Variable;
+```
+
+## tally::FuncGauge
+
+按需展示值。在某些场景下，无法调用 `set_value` 或不确定调用频率，此时更适合仅在需要时获取并展示值。用户通过传入回调函数实现。
+
+```c++
+// 按需展示值，通过用户定义的回调函数生成值
+// 示例：
+//   int print_number(void* arg) {
+//      ...
+//      return 5;
+//   }
+//
+//   // number1 : 5
+//   tally::FuncGauge status1("number1", print_number, arg);
+//
+//   // foo_number2 : 5
+//   tally::FuncGauge status2(typeid(Foo), "number2", print_number, arg);
+template <typename Tp>
+class FuncGauge : public Variable;
+```
+
+尽管简单，`FuncGauge` 是 `tally` 中最有用的组件之一。这是因为很多统计值已经存在，无需再次存储，只需按需获取。例如，下面的代码声明了一个 `tally`，用于显示 Linux 上进程用户名：
+
+```c++
+static void get_username(std::ostream& os, void*) {
+    char buf[32];
+    if (getlogin_r(buf, sizeof(buf)) == 0) {
+        buf[sizeof(buf)-1] = '\0';
+        os << buf;
+    } else {
+        os << "unknown";
+    }
+}
+PassiveStatus<std::string> g_username("process_username", get_username, NULL);
+```

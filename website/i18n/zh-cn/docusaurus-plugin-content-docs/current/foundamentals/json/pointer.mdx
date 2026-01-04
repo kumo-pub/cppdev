@@ -1,0 +1,247 @@
+# 指针
+
+（此功能在 v1.1.0 中发布）
+
+JSON Pointer 是一种标准化的方法（[RFC6901]），用于在 JSON 文档（DOM）中选择一个值。它类似于 XML 的 XPath，但 JSON Pointer 更简单，每个 Pointer 精确指向一个值。
+
+使用 Merak 的 JSON Pointer 实现可以简化某些 DOM 操作。
+
+[TOC]
+
+# JSON Pointer {#JsonPointer}
+
+JSON Pointer 由一系列（零个或多个）标记组成，每个标记以 `/` 开头。每个标记可以是字符串或数字。例如，给定如下 JSON：
+
+```javascript
+{
+    "foo" : ["bar", "baz"],
+    "pi" : 3.1416
+}
+```
+
+以下 JSON Pointer 对应的值为：
+
+1. `"/foo"` → `[ "bar", "baz" ]`
+2. `"/foo/0"` → `"bar"`
+3. `"/foo/1"` → `"baz"`
+4. `"/pi"` → `3.1416`
+
+注意，空 JSON Pointer `""`（零标记）对应整个 JSON 文档。
+
+# 基本用法 {#BasicUsage}
+
+下面的代码示例自解释：
+
+```cpp
+#include "merak/json/pointer.h"
+
+// ...
+Document d;
+
+// 使用 Set() 创建 DOM
+Pointer("/project").Set(d, "Merak");
+Pointer("/stars").Set(d, 10);
+
+// { "project" : "Merak", "stars" : 10 }
+
+// 使用 Get() 访问 DOM。如果值不存在返回 nullptr
+if (Value* stars = Pointer("/stars").Get(d))
+    stars->SetInt(stars->GetInt() + 1);
+
+// { "project" : "Merak", "stars" : 11 }
+
+// Set() 和 Create() 会自动生成父值（如果不存在）
+Pointer("/a/b/0").Create(d);
+
+// { "project" : "Merak", "stars" : 11, "a" : { "b" : [ null ] } }
+
+// GetWithDefault() 返回引用。如果目标值不存在，则深拷贝默认值
+Value& hello = Pointer("/hello").GetWithDefault(d, "world");
+
+// { "project" : "Merak", "stars" : 11, "a" : { "b" : [ null ] }, "hello" : "world" }
+
+// Swap() 类似于 Set()
+Value x("C++");
+Pointer("/hello").Swap(d, x);
+
+// { "project" : "Merak", "stars" : 11, "a" : { "b" : [ null ] }, "hello" : "C++" }
+// x 变为 "world"
+
+// 删除成员或元素，存在返回 true
+bool success = Pointer("/a").Erase(d);
+assert(success);
+
+// { "project" : "Merak", "stars" : 11 }
+```
+
+# 辅助函数 {#HelperFunctions}
+
+为了更方便调用，Merak 提供了封装成员函数的自由函数版本，效果与上例完全相同：
+
+```cpp
+Document d;
+
+SetValueByPointer(d, "/project", "Merak");
+SetValueByPointer(d, "/stars", 10);
+
+if (Value* stars = GetValueByPointer(d, "/stars"))
+    stars->SetInt(stars->GetInt() + 1);
+
+CreateValueByPointer(d, "/a/b/0");
+
+Value& hello = GetValueByPointerWithDefault(d, "/hello", "world");
+
+Value x("C++");
+SwapValueByPointer(d, "/hello", x);
+
+bool success = EraseValueByPointer(d, "/a");
+assert(success);
+```
+
+三种调用方式对比：
+
+1. `Pointer(source).<Method>(root, ...)`
+2. `<Method>ValueByPointer(root, Pointer(source), ...)`
+3. `<Method>ValueByPointer(root, source, ...)`
+
+# 解析指针 {#ResolvingPointer}
+
+`Pointer::Get()` 或 `GetValueByPointer()` 不会修改 DOM。如果标记无法匹配到值，则返回 `nullptr`，可用于检查值是否存在。
+
+数字标记既可以表示数组索引，也可以表示成员名。解析时会根据目标值类型匹配。例如：
+
+```javascript
+{
+    "0" : 123,
+    "1" : [456]
+}
+```
+
+1. `"/0"` → `123`
+2. `"/1/0"` → `456`
+
+第一个 Pointer 中 `"0"` 被视为成员名，第二个 Pointer 中 `"0"` 被视为数组索引。
+
+其他会修改 DOM 的函数包括 `Create()`、`GetWithDefault()`、`Set()` 和 `Swap()`，它们总是会成功：
+
+* 如果父值不存在，会自动创建。
+* 如果父值类型不匹配，会强制修改类型（会清空其子 DOM）。
+
+例如，解析上面 JSON 后：
+
+```cpp
+SetValueByPointer(d, "1/a", 789); // { "0" : 123, "1" : { "a" : 789 } }
+```
+
+## 负号标记解析
+
+[RFC6901] 定义了特殊标记 `-`（单个连字符），表示数组末尾之后的位置：
+
+* `Get()` 仅将其视为成员名 `"-"`
+* 其他函数在数组中解析它，相当于调用 `Value::PushBack()`
+
+```cpp
+Document d;
+d.Parse("{\"foo\":[123]}");
+SetValueByPointer(d, "/foo/-", 456); // { "foo" : [123, 456] }
+SetValueByPointer(d, "/-", 789);    // { "foo" : [123, 456], "-" : 789 }
+```
+
+## 文档与值解析
+
+`p.Get(root)` 或 `GetValueByPointer(root, p)` 中的 `root` 是 (const) `Value&`，可以是 DOM 的子树。
+
+其他函数有两组签名：
+
+1. 接受 `Document& document`（使用 `document.GetAllocator()` 创建值）
+2. 接受 `Value& root`（需要用户提供 allocator）
+
+前面示例中不需要 allocator（参数是 `Document&`）。要在子树中解析指针，需要提供 allocator，例如：
+
+```cpp
+class Person {
+public:
+    Person() {
+        document_ = new Document();
+        SetLocation(CreateValueByPointer(*document_, "/residence"), ...);
+        SetLocation(CreateValueByPointer(*document_, "/office"), ...);
+    };
+
+private:
+    void SetLocation(Value& location, const char* country, const char* addresses[2]) {
+        Value::Allocator& a = document_->GetAllocator();
+        SetValueByPointer(location, "/country", country, a);
+        SetValueByPointer(location, "/address/0", addresses[0], a);
+        SetValueByPointer(location, "/address/1", addresses[1], a);
+    }
+
+    Document* document_;
+};
+```
+
+`Erase()` 或 `EraseValueByPointer()` 不需要 allocator，删除成功返回 `true`。
+
+# 错误处理 {#ErrorHandling}
+
+`Pointer` 在构造时解析源字符串：
+
+* 解析出错时，`Pointer::IsValid()` 返回 `false`
+* 使用 `Pointer::GetParseErrorCode()` 和 `GetParseErrorOffset()` 获取错误详情
+
+**注意**：解析函数假定指针有效，解析无效指针会触发断言。
+
+# URI Fragment 表示 {#URIFragment}
+
+除了标准字符串表示，[RFC6901] 还定义了 JSON Pointer 的 URI fragment 表示（URI fragment 定义见 [RFC3986]）。
+
+主要区别：
+
+* 必须以 `#` 开头
+* 部分字符以 UTF-8 百分号编码
+
+示例对比：
+
+| 字符串表示      | URI fragment 表示 | Pointer Tokens (UTF-8) |
+| ---------- | --------------- | ---------------------- |
+| `"/foo/0"` | `"#/foo/0"`     | `{"foo", 0}`           |
+| `"/a~1b"`  | `"#/a~1b"`      | `{"a/b"}`              |
+| `"/m~0n"`  | `"#/m~0n"`      | `{"m~n"}`              |
+| `"/ "`     | `"#/%20"`       | `{" "}`                |
+| `"/\0"`    | `"#/%00"`       | `{"\0"}`               |
+| `"/€"`     | `"#/%E2%82%AC"` | `{"€"}`                |
+
+Merak 完全支持 URI fragment，并能自动检测 `#`。
+
+# 字符串化
+
+可以将 `Pointer` 字符串化并输出：
+
+```cpp
+Pointer p(...);
+StringBuffer sb;
+p.Stringify(sb);
+std::cout << sb.GetString() << std::endl;
+```
+
+使用 `StringifyUriFragment()` 可输出 URI fragment 表示。
+
+# 用户自定义标记 {#UserSuppliedTokens}
+
+如果指针需要多次解析：
+
+* 可创建一次并在不同 DOM 上使用，避免重复创建 Pointer 和分配内存
+* 为极致优化，可直接生成 token 数组，跳过解析和动态分配：
+
+```cpp
+#define NAME(s) { s, sizeof(s) / sizeof(s[0]) - 1, kPointerInvalidIndex }
+#define INDEX(i) { #i, sizeof(#i) - 1, i }
+
+static const Pointer::Token kTokens[] = { NAME("foo"), INDEX(123) };
+static const Pointer p(kTokens, sizeof(kTokens) / sizeof(kTokens[0]));
+// 等价于 static const Pointer p("/foo/123");
+```
+
+适合内存受限的系统。
+
+[RFC3986]: https://tools.ietf.org/html/rfc3986
+[RFC6901]: https://tools.ietf.org/html/rfc6901

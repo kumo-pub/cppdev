@@ -1,0 +1,70 @@
+---
+title: Cloud Storage Overview
+---
+
+# Cloud Storage Overview for Kumo Stack
+
+Kumo Stack supports integration with several cloud storage backends to store **KV backups, SST files, snapshots, and other large datasets**.
+The focus is on **practical integration and operational guidance**, not vendor recommendation.
+
+---
+
+## 1. Supported Cloud Storage Backends
+
+| Cloud | Integration Method | Notes |
+|-------|-----------------|-------|
+| AWS S3 | aws-c-sdk / aws-crt-cpp | Full support for object storage, multi-part upload, concurrent writes. Recommended for RocksDB SST backups. |
+| Microsoft Azure | azure-core-cpp / azure-storage-blobs-cpp | Supports object storage (Blobs), EventHub, IoT, KeyVault. Use C++ SDK for upload/download of KV snapshots. |
+| Google Cloud Storage | google-cloud-cpp (storage-grpc) | GRPC-based object storage interface. Suitable for SST and snapshot storage. |
+| HDFS | libhdfs3 | Native C++ library for HDFS. Preferred for enterprise Hadoop environments, allows direct file upload/download. |
+
+> All integrations use **native C/C++ SDKs** to ensure high performance, predictable behavior, and easy operational control.
+
+---
+
+## 2. Integration Patterns
+
+- **KV Backup / RocksDB SST Files**
+  - Most platforms support **direct SST upload**.
+  - Directory structure by environment/date recommended.
+  - Minimize number of files in a single folder for better operational reliability.
+
+- **Snapshots**
+  - Use platform SDKs to stream snapshot files to storage.
+  - Prefer **single snapshot file per operation** for simpler restore.
+
+- **Concurrency**
+  - Multi-threaded uploads are supported on all backends for large datasets.
+  - Ensure SDK configuration matches throughput needs.
+
+---
+
+## 3. Operational Recommendations
+
+- Use **native SDKs** (`aws-c-sdk`, `azure-storage-blobs-cpp`, `google-cloud-cpp`, `libhdfs3`) rather than external CLI or FUSE mounts for production workloads.
+- Organize directories to avoid operational bottlenecks (too many files per folder).
+- For HDFS, use **single large files** rather than many small files to reduce NameNode overhead.
+- Validate restores on staging environments before production.
+
+---
+
+## 4. Use Case Summary
+
+| Use Case | Recommended Storage | Notes |
+|----------|------------------|-------|
+| RocksDB SST Backup | AWS S3, Azure Blob, GCS | Use multi-part or gRPC upload, minimal CFs |
+| Snapshot Streaming | All backends | Single snapshot per upload, verify consistency |
+| Long-term retention | HDFS, AWS S3 | Organize by date/environment, minimal directory depth |
+| High-concurrency writes | AWS S3, GCS | Multi-threaded uploads, tune SDK thread pools |
+
+---
+
+## 5. Summary
+
+Kumo Stack currently **supports all major cloud storage backends** with **native C/C++ SDKs**, focusing on operational simplicity and maintainable backup strategies.
+- AWS S3: most mature, multi-part uploads.
+- Azure Blob: supports EventHub and KeyVault integration.
+- GCS: gRPC-based interface.
+- HDFS: native C++ file operations with libhdfs3.
+
+Integration patterns are consistent: **single-file SST uploads, organized directories, minimal column families**, ensuring high performance and easy operational management.

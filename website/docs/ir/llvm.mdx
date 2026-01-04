@@ -1,1 +1,61 @@
-# llvm
+# LLVM
+
+LLVM is a **modular compiler infrastructure** and toolchain, not a parser generator.
+It provides the building blocks for code representation, optimization, and generation, including support for **ASTs, IRs, and MLIR**.
+
+---
+
+## What It Is
+
+- A **compiler framework** that allows you to build **custom compilers, interpreters, and code transformation tools**.
+- Provides **intermediate representations (IR)**, **optimization passes**, and **code generation backends**.
+- Supports **C++ APIs** for AST manipulation, IR generation, and integration with other tooling.
+
+---
+
+## When to Use
+
+- **High-performance or custom language tooling**, where you need control over **code analysis, transformations, or JIT compilation**.
+- **C++-heavy environments** where the tooling integrates directly with existing compiler workflows.
+- Projects needing **MLIR** (Multi-Level Intermediate Representation) for machine learning or specialized DSL compilation.
+
+---
+
+## Advantages
+
+- Extremely **flexible and extensible**, can represent complex IRs and ASTs.
+- **Wide adoption** in systems programming, ML compilers, and high-performance DSLs.
+- Can be used as a **backend for custom languages**, or for **transforming/executing existing code**.
+
+---
+
+## Considerations
+
+- **Not a parser**: you need a front-end (like Clang, ANTLR, PEGTL, Bison/Flex) to generate AST/IR.
+- **Complexity**: High, requires deep knowledge of compiler design and LLVM APIs.
+- **Use cases**: Custom compilers, DSL tooling, high-performance numerical computing, MLIR-based frameworks.
+
+---
+
+## Reference Projects
+
+- **Codon**: a high-performance Python compiler using LLVM IR
+- **Hailide**: DSL compiler leveraging LLVM for numerical computations
+- **Triton**: GPU-optimized tensor compiler using LLVM backend
+
+---
+
+## References
+
+- [LLVM Official](https://llvm.org/)
+- [MLIR Official](https://mlir.llvm.org/)
+
+---
+
+### Summary
+
+- **Integration complexity**: High
+- **Performance**: Excellent for compiled code and JIT pipelines
+- **Typical scenarios**: Custom compiler development, MLIR pipelines, DSL execution, high-performance C++ tooling
+
+> LLVM is a **powerful foundation**, but it requires a **parser front-end** to generate AST/IR. It is primarily used in **C++ tooling, MLIR projects, and compiler development**.
